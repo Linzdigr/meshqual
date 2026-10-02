@@ -103,11 +103,13 @@ func Load(path string) (Config, error) {
 			return cfg, fmt.Errorf("config: %s: %w", path, err)
 		}
 	}
-	cfg.applyEnv()
+	if err := cfg.applyEnv(); err != nil {
+		return cfg, err
+	}
 	return cfg, cfg.validate()
 }
 
-func (c *Config) applyEnv() {
+func (c *Config) applyEnv() error {
 	if v := os.Getenv("MESHQUAL_ADDR"); v != "" {
 		c.Addr = v
 	}
@@ -135,7 +137,15 @@ func (c *Config) applyEnv() {
 		if v := os.Getenv("MESHQUAL_MQTT_" + id + "_URL"); v != "" {
 			c.Sources[i].BrokerURL = v
 		}
+		if v := os.Getenv("MESHQUAL_MQTT_" + id + "_ENABLED"); v != "" {
+			on, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("config: MESHQUAL_MQTT_%s_ENABLED=%q is not a boolean", id, v)
+			}
+			c.Sources[i].Enabled = &on
+		}
 	}
+	return nil
 }
 
 func (c *Config) validate() error {

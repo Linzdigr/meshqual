@@ -51,6 +51,7 @@ these environment overrides:
 | `MESHQUAL_CORS_ORIGINS` | Comma-separated allowed origins |
 | `MESHQUAL_REPLAY_FILE` | NDJSON file to replay as an extra source |
 | `MESHQUAL_MQTT_<ID>_URL` / `_USERNAME` / `_PASSWORD` | Override a source's broker settings. `<ID>` is the source `id` in upper case. |
+| `MESHQUAL_MQTT_<ID>_ENABLED` | `false` skips the source (e.g. `MESHQUAL_MQTT_COMCHAN_ENABLED=false` to use only the local broker) |
 
 Frontend variables are read at build time, from `.env` by `docker compose build
 web`. Rebuild the image after changing them.
@@ -68,6 +69,8 @@ Each entry in `sources` is one broker subscription:
 ```json
 { "id": "local", "brokerUrl": "mqtt://mosquitto:1884", "topics": ["meshcore/+/+/packets"] }
 ```
+
+A source can also be turned off in the file with `"enabled": false`.
 
 Supported schemes: `mqtt://`, `mqtts://`, `ws://`, `wss://`. Topics follow the
 `meshcore/<IATA>/<observer key>/packets` convention used by

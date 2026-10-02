@@ -16,6 +16,10 @@ export interface LinkProperties {
   backward: number
   lastSeen: string
   ageSec: number
+  /** Direction of the newest sample: true means A → B. */
+  lastForward: boolean
+  /** SNR carried by the newest sample, when it had one. */
+  lastSnr?: number
   distKm: number
   /** log10(samples+1): the width channel, so a backbone does not hide the leaves. */
   weight: number

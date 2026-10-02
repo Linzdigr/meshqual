@@ -137,18 +137,19 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 
 		props := map[string]any{
-			"linkId":   l.ID.String(),
-			"aKey":     l.AKey,
-			"bKey":     l.BKey,
-			"aName":    na.Name,
-			"bName":    nb.Name,
-			"kind":     l.Kind,
-			"samples":  l.Samples,
-			"forward":  l.Forward,
-			"backward": l.Backward,
-			"lastSeen": l.LastSeen.UTC().Format(time.RFC3339),
-			"ageSec":   int(time.Since(l.LastSeen).Seconds()),
-			"distKm":   round2(geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude)),
+			"linkId":      l.ID.String(),
+			"aKey":        l.AKey,
+			"bKey":        l.BKey,
+			"aName":       na.Name,
+			"bName":       nb.Name,
+			"kind":        l.Kind,
+			"samples":     l.Samples,
+			"forward":     l.Forward,
+			"backward":    l.Backward,
+			"lastSeen":    l.LastSeen.UTC().Format(time.RFC3339),
+			"ageSec":      int(time.Since(l.LastSeen).Seconds()),
+			"lastForward": l.LastForward,
+			"distKm":      round2(geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude)),
 			// Width is driven by traffic on a log scale: a backbone link carries
 			// orders of magnitude more than a leaf, and a linear width would
 			// make everything but the busiest pair invisible.
@@ -160,6 +161,9 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			props["snrMin"] = l.SNR.Min
 			props["snrMax"] = l.SNR.Max
 			props["snrCount"] = l.SNR.Count
+		}
+		if l.LastSNR != nil {
+			props["lastSnr"] = *l.LastSNR
 		}
 		if l.RSSIMean != nil {
 			props["rssiMean"] = round2(*l.RSSIMean)

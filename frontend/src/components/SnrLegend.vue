@@ -11,8 +11,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{ toggle: [LinkKind] }>()
 
-const buckets = computed(() => snrBuckets(props.thresholds))
 const ramp = ['var(--snr-1)', 'var(--snr-2)', 'var(--snr-3)', 'var(--snr-4)']
+
+// Strongest first. Each bucket keeps its ramp colour, so the order can change
+// without the swatches drifting off the map's colours.
+const buckets = computed(() =>
+  snrBuckets(props.thresholds)
+    .map((b, i) => ({ ...b, color: ramp[i] }))
+    .reverse(),
+)
 
 const kindRows: { kind: LinkKind; label: string; hint: string }[] = [
   { kind: 'measured', label: 'Mesurés', hint: "SNR relevé par l'observateur sur le dernier saut" },
@@ -32,8 +39,8 @@ function active(kind: LinkKind): boolean {
       <!-- The ramp is ordinal, so every step carries its dB range: the colour is
            an ordering, not a readable value. -->
       <ul class="ramp">
-        <li v-for="(b, i) in buckets" :key="b.label">
-          <span class="swatch" :style="{ background: ramp[i] }" aria-hidden="true" />
+        <li v-for="b in buckets" :key="b.label">
+          <span class="swatch" :style="{ background: b.color }" aria-hidden="true" />
           <span class="mono range">{{ b.label }}</span>
           <span class="note">{{ b.note }}</span>
         </li>

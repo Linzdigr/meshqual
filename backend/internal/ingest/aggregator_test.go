@@ -112,3 +112,20 @@ func TestHealthShares(t *testing.T) {
 		t.Errorf("shares = %+v", h)
 	}
 }
+
+func TestAggregatorTracksNewestSample(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindMeasured, f64(3), now)}})
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("B", "A", KindTopology, nil, now.Add(time.Second))}})
+	// An older sample arriving late must not overwrite the newest one.
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindMeasured, f64(9), now.Add(-time.Second))}})
+
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.LastForward {
+		t.Error("LastForward = true, want false: the newest sample went B -> A")
+	}
+	if v.LastSNR != nil {
+		t.Errorf("LastSNR = %v, want nil: the newest sample carried no SNR", *v.LastSNR)
+	}
+}

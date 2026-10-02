@@ -51,11 +51,13 @@ export interface SnrBucket {
  */
 export function snrBuckets(thresholds: readonly number[]): SnrBucket[] {
   const [t0, t1, t2] = thresholds
+  // Same order as the ramp and snrBucketIndex: weakest first. Display order is
+  // the legend's business.
   return [
-    { from: t2!, to: Infinity, label: `≥ ${t2} dB`, note: 'Lien stable à solide' },
-    { from: t1!, to: t2!, label: `${t1} à ${t2} dB`, note: 'Utilisable' },
-    { from: t0!, to: t1!, label: `${t0} à ${t1} dB`, note: 'Instable' },
     { from: -Infinity, to: t0!, label: `< ${t0} dB`, note: 'Intermittent' },
+    { from: t0!, to: t1!, label: `${t0} à ${t1} dB`, note: 'Instable' },
+    { from: t1!, to: t2!, label: `${t1} à ${t2} dB`, note: 'Utilisable' },
+    { from: t2!, to: Infinity, label: `≥ ${t2} dB`, note: 'Lien stable à solide' },
   ]
 }
 
@@ -81,9 +83,13 @@ export function snrColor(snr: number, thresholds: readonly number[], dark: boole
  * labelled legend are readable on a busy map, where a continuous ramp asks the
  * eye to decode a lightness it cannot measure against a moving basemap.
  */
-export function snrStepExpression(thresholds: readonly number[], dark: boolean): unknown[] {
+export function snrStepExpression(
+  thresholds: readonly number[],
+  dark: boolean,
+  property = 'snrMedian',
+): unknown[] {
   const ramp = dark ? SNR_RAMP_DARK : SNR_RAMP_LIGHT
-  const expr: unknown[] = ['step', ['get', 'snrMedian'], ramp[0]]
+  const expr: unknown[] = ['step', ['get', property], ramp[0]]
   thresholds.forEach((t, i) => {
     expr.push(t, ramp[i + 1] ?? ramp[ramp.length - 1])
   })

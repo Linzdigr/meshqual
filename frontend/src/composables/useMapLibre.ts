@@ -1,6 +1,7 @@
 import maplibregl, { type ExpressionSpecification, type Map as MlMap, type StyleSpecification } from 'maplibre-gl'
 import { onScopeDispose, type Ref } from 'vue'
-import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
+import type { LineString } from 'geojson'
+import type { BBox, Feature, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import {
   NO_DATA_DARK,
   NO_DATA_LIGHT,
@@ -11,10 +12,13 @@ import {
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
+/** Links heard in the last ACTIVE_MS, oriented in the direction of their newest packet. */
+export const ACTIVE_SOURCE = 'links-active'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
 const LAYER_MEASURED = 'links-measured'
+const LAYER_ACTIVE = 'links-active-line'
 const LAYER_SELECTED = 'links-selected'
 const LAYER_NODES = 'nodes-circles'
 const LAYER_NODE_LABELS = 'nodes-labels'
@@ -29,6 +33,42 @@ const TILE_URL =
   import.meta.env.VITE_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as const
+
+/** How long a link animates after its newest packet. */
+const ACTIVE_MS = 10_000
+
+/**
+ * Ant-path frames for `line-dasharray`, in line-width units: a 3-long dash every
+ * 7. Growing the leading gap frame by frame moves the dashes toward the end of
+ * the line, so the geometry's direction is the direction of travel.
+ */
+const DASH_FRAMES: number[][] = [
+  [0, 4, 3],
+  [0.5, 4, 2.5],
+  [1, 4, 2],
+  [1.5, 4, 1.5],
+  [2, 4, 1],
+  [2.5, 4, 0.5],
+  [3, 4, 0],
+  [0, 0.5, 3, 3.5],
+  [0, 1, 3, 3],
+  [0, 1.5, 3, 2.5],
+  [0, 2, 3, 2],
+  [0, 2.5, 3, 1.5],
+  [0, 3, 3, 1],
+  [0, 3.5, 3, 0.5],
+]
+const DASH_FRAME_MS = 50
+
+const TOPOLOGY_FILTER: ExpressionSpecification = ['==', ['get', 'kind'], 'topology']
+const MEASURED_FILTER: ExpressionSpecification = ['!=', ['get', 'kind'], 'topology']
+
+interface ActiveProperties {
+  linkId: string
+  weight: number
+  /** SNR of the newest packet, else the link median; absent when neither exists. */
+  snrActive?: number
+}
 
 /**
  * Width is driven by traffic on a log scale (`weight` = log10(samples+1)): a
@@ -70,6 +110,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       },
       [LINKS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [NODES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
     },
     layers: [
       {
@@ -115,7 +156,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       id: LAYER_TOPOLOGY,
       type: 'line' as const,
       source: LINKS_SOURCE,
-      filter: ['==', ['get', 'kind'], 'topology'] as ExpressionSpecification,
+      filter: TOPOLOGY_FILTER,
       layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const },
       paint: {
         'line-color': noData,
@@ -129,12 +170,31 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       id: LAYER_MEASURED,
       type: 'line' as const,
       source: LINKS_SOURCE,
-      filter: ['!=', ['get', 'kind'], 'topology'] as ExpressionSpecification,
+      filter: MEASURED_FILTER,
       layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
       paint: {
         'line-color': snrStepExpression(thresholds, dark) as unknown as ExpressionSpecification,
         'line-width': WIDTH,
         'line-opacity': 0.95,
+      },
+    },
+    // Recently heard links, animated in the direction of their newest packet.
+    // The static line underneath is hidden meanwhile (see syncActive), so the
+    // dash gaps show the casing rather than the same colour.
+    {
+      id: LAYER_ACTIVE,
+      type: 'line' as const,
+      source: ACTIVE_SOURCE,
+      layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const },
+      paint: {
+        'line-color': [
+          'case',
+          ['has', 'snrActive'],
+          snrStepExpression(thresholds, dark, 'snrActive'),
+          noData,
+        ] as unknown as ExpressionSpecification,
+        'line-width': widthExpr(1),
+        'line-dasharray': DASH_FRAMES[0] as unknown as ExpressionSpecification,
       },
     },
     {
@@ -206,6 +266,12 @@ export function useMapLibre(opts: UseMapOptions) {
   let pendingLinks: FeatureCollection<LinkProperties> | null = null
   let pendingNodes: FeatureCollection<NodeProperties> | null = null
 
+  const active = new Map<string, { expiresAt: number; feature: Feature<ActiveProperties, LineString> }>()
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  let raf = 0
+  let dashFrame = 0
+  let lastDashAt = 0
+
   function bboxOf(m: MlMap): BBox {
     const b = m.getBounds()
     return {
@@ -254,7 +320,7 @@ export function useMapLibre(opts: UseMapOptions) {
         [point.x - CLICK_TOLERANCE, point.y - CLICK_TOLERANCE],
         [point.x + CLICK_TOLERANCE, point.y + CLICK_TOLERANCE],
       ]
-      return map.queryRenderedFeatures(box, { layers: [LAYER_MEASURED, LAYER_TOPOLOGY] })
+      return map.queryRenderedFeatures(box, { layers: [LAYER_ACTIVE, LAYER_MEASURED, LAYER_TOPOLOGY] })
     }
 
     map.on('click', (e) => {
@@ -285,6 +351,73 @@ export function useMapLibre(opts: UseMapOptions) {
       // GeoJSON: there is no transform step between fetch and render.
       ;(src as maplibregl.GeoJSONSource).setData(fc as never)
     }
+    trackActive(fc)
+  }
+
+  /**
+   * Records which links were heard in the last ACTIVE_MS. The expiry comes from
+   * the server-computed `ageSec` and the local clock at fetch time, so a skewed
+   * client clock cannot keep a link animated or cut it short.
+   */
+  function trackActive(fc: FeatureCollection<LinkProperties>) {
+    const now = Date.now()
+    const present = new Set<string>()
+    for (const f of fc.features) {
+      const p = f.properties
+      present.add(p.linkId)
+      const remaining = ACTIVE_MS - p.ageSec * 1000
+      if (remaining <= 0 || f.geometry.type !== 'LineString') continue
+      const coords = f.geometry.coordinates
+      const snr = p.lastSnr ?? p.snrMedian
+      active.set(p.linkId, {
+        expiresAt: now + remaining,
+        feature: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: p.lastForward ? coords : [...coords].reverse() },
+          properties: { linkId: p.linkId, weight: p.weight, ...(snr !== undefined && { snrActive: snr }) },
+        },
+      })
+    }
+    // A link filtered out or scrolled off the map stops animating with it.
+    for (const id of active.keys()) if (!present.has(id)) active.delete(id)
+    syncActive()
+  }
+
+  /** Pushes the active set to the map and hides the static line under each one. */
+  function syncActive() {
+    if (!map || !ready) return
+    const src = map.getSource(ACTIVE_SOURCE)
+    if (src && 'setData' in src) {
+      ;(src as maplibregl.GeoJSONSource).setData({
+        type: 'FeatureCollection',
+        features: [...active.values()].map((a) => a.feature),
+      } as never)
+    }
+    const hide: ExpressionSpecification = ['!', ['in', ['get', 'linkId'], ['literal', [...active.keys()]]]]
+    map.setFilter(LAYER_TOPOLOGY, ['all', TOPOLOGY_FILTER, hide])
+    map.setFilter(LAYER_MEASURED, ['all', MEASURED_FILTER, hide])
+    if (active.size > 0 && raf === 0) raf = requestAnimationFrame(tick)
+  }
+
+  function tick(t: number) {
+    raf = 0
+    if (!map || !ready) return
+    const now = Date.now()
+    let expired = false
+    for (const [id, a] of active) {
+      if (a.expiresAt <= now) {
+        active.delete(id)
+        expired = true
+      }
+    }
+    if (expired) syncActive()
+    if (active.size === 0) return
+    if (!reducedMotion && t - lastDashAt >= DASH_FRAME_MS) {
+      dashFrame = (dashFrame + 1) % DASH_FRAMES.length
+      lastDashAt = t
+      map.setPaintProperty(LAYER_ACTIVE, 'line-dasharray', DASH_FRAMES[dashFrame])
+    }
+    if (raf === 0) raf = requestAnimationFrame(tick)
   }
 
   function setNodes(fc: FeatureCollection<NodeProperties>) {
@@ -308,6 +441,7 @@ export function useMapLibre(opts: UseMapOptions) {
       LAYER_NODE_LABELS,
       LAYER_NODES,
       LAYER_SELECTED,
+      LAYER_ACTIVE,
       LAYER_MEASURED,
       LAYER_TOPOLOGY,
       LAYER_CASING,
@@ -318,6 +452,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setPaintProperty('basemap', 'raster-opacity', dark ? 0.45 : 0.75)
     map.setPaintProperty('basemap', 'raster-brightness-max', dark ? 0.55 : 1)
     addDataLayers()
+    syncActive()
   }
 
   function fitTo(bbox: BBox) {
@@ -331,6 +466,7 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   onScopeDispose(() => {
+    if (raf !== 0) cancelAnimationFrame(raf)
     map?.remove()
     map = null
     ready = false

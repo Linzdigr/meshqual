@@ -17,6 +17,7 @@ import (
 // MQTTConfig describes one broker to ingest from.
 type MQTTConfig struct {
 	ID        string   `json:"id"`
+	Enabled   *bool    `json:"enabled"`   // nil means enabled
 	BrokerURL string   `json:"brokerUrl"` // mqtts://host:8883, ws://, wss://
 	Username  string   `json:"username"`
 	Password  string   `json:"password"`
@@ -27,6 +28,9 @@ type MQTTConfig struct {
 	// MQTT read loop and stalling every other source.
 	QueueSize int `json:"queueSize"`
 }
+
+// IsEnabled reports whether the source should be started.
+func (c MQTTConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
 
 const defaultTopic = "meshcore/+/+/packets"
 

@@ -181,6 +181,10 @@ func run(cfg config.Config, log *slog.Logger) error {
 func buildSources(cfg config.Config, log *slog.Logger) ([]source.Source, error) {
 	var out []source.Source
 	for _, mc := range cfg.Sources {
+		if !mc.IsEnabled() {
+			log.Info("source disabled", "source", mc.ID)
+			continue
+		}
 		s, err := source.NewMQTT(mc, log)
 		if err != nil {
 			return nil, err

@@ -50,6 +50,11 @@ type LinkState struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
 
+	// The newest sample: which way it went and the SNR it carried, if any. The
+	// map animates a link in that direction for a few seconds after it is heard.
+	LastForward bool
+	LastSNR     *float64
+
 	snr    []float64 // bounded ring of recent SNR values
 	snrPos int
 	rssi   []float64
@@ -122,8 +127,9 @@ func (a *Aggregator) Add(d *Decoded) {
 		} else {
 			st.Backward++
 		}
-		if s.At.After(st.LastSeen) {
+		if !s.At.Before(st.LastSeen) {
 			st.LastSeen = s.At
+			st.LastForward, st.LastSNR = s.Forward, s.SNR
 		}
 		if s.At.Before(st.FirstSeen) {
 			st.FirstSeen = s.At
@@ -259,18 +265,21 @@ func (a *Aggregator) Health() Health {
 
 // LinkView is the serialisable form of a link.
 type LinkView struct {
-	ID        LinkID         `json:"-"`
-	AKey      string         `json:"aKey"`
-	BKey      string         `json:"bKey"`
-	Kind      string         `json:"kind"`
-	Samples   int            `json:"samples"`
-	Forward   int            `json:"forward"`
-	Backward  int            `json:"backward"`
-	FirstSeen time.Time      `json:"firstSeen"`
-	LastSeen  time.Time      `json:"lastSeen"`
-	SNR       *SNRStats      `json:"snr"`
-	RSSIMean  *float64       `json:"rssiMean"`
-	Observers map[string]int `json:"observers"`
+	ID        LinkID    `json:"-"`
+	AKey      string    `json:"aKey"`
+	BKey      string    `json:"bKey"`
+	Kind      string    `json:"kind"`
+	Samples   int       `json:"samples"`
+	Forward   int       `json:"forward"`
+	Backward  int       `json:"backward"`
+	FirstSeen time.Time `json:"firstSeen"`
+	LastSeen  time.Time `json:"lastSeen"`
+	// LastForward and LastSNR describe the newest sample only.
+	LastForward bool           `json:"lastForward"`
+	LastSNR     *float64       `json:"lastSnr"`
+	SNR         *SNRStats      `json:"snr"`
+	RSSIMean    *float64       `json:"rssiMean"`
+	Observers   map[string]int `json:"observers"`
 }
 
 func (st *LinkState) view() LinkView {
@@ -278,6 +287,7 @@ func (st *LinkState) view() LinkView {
 		ID: st.ID, AKey: st.ID.A, BKey: st.ID.B, Kind: st.Kind.String(),
 		Samples: st.Samples, Forward: st.Forward, Backward: st.Backward,
 		FirstSeen: st.FirstSeen, LastSeen: st.LastSeen,
+		LastForward: st.LastForward, LastSNR: st.LastSNR,
 		Observers: make(map[string]int, len(st.Observers)),
 	}
 	for k, n := range st.Observers {
