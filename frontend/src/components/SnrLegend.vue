@@ -155,12 +155,12 @@ ul {
 }
 
 .mark.measured {
-  border-top-color: var(--snr-3);
+  border-top-color: var(--snr-2);
   border-top-width: 3px;
 }
 
 .mark.trace {
-  border-top-color: var(--snr-4);
+  border-top-color: var(--snr-1);
   border-top-width: 3px;
 }
 

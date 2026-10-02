@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/yvanferez/meshqual/backend/internal/geo"
 	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 )
 
@@ -38,6 +39,10 @@ func (r Resolution) Resolved() bool { return r.Key != "" && !r.Ambiguous }
 
 // Resolver maps path hashes to node public keys.
 type Resolver struct {
+	// MaxHopKm bounds the length of a single radio hop. Zero disables the check.
+	// Set it before the resolver is shared.
+	MaxHopKm float64
+
 	mu    sync.RWMutex
 	nodes map[string]*Node
 	// byHash indexes every node under each hash width the format allows, so a
@@ -119,6 +124,26 @@ func (r *Resolver) Resolve(h meshcore.Hash) Resolution {
 	default:
 		return Resolution{Ambiguous: true, Candidates: len(c)}
 	}
+}
+
+// Plausible reports whether nodes a and b can be one radio hop apart.
+//
+// A hash that matches a single known node is only unique among the nodes we
+// have heard adverts from. When the real hop never advertised, the hash lands on
+// whichever node shares it, possibly on another continent: every broker feeds
+// the same resolver. Distance is the one check that does not depend on knowing
+// every node. A pair with an unknown position passes, since it is not drawn.
+func (r *Resolver) Plausible(a, b string) bool {
+	if r.MaxHopKm <= 0 {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	na, nb := r.nodes[a], r.nodes[b]
+	if na == nil || nb == nil || !na.HasPosition() || !nb.HasPosition() {
+		return true
+	}
+	return geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude) <= r.MaxHopKm
 }
 
 // Get returns a copy of a node by key.

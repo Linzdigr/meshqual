@@ -34,7 +34,7 @@ describe('snrBucketIndex', () => {
 })
 
 describe('snrColor', () => {
-  it('is monotone: a stronger link is never a lighter step', () => {
+  it('is monotone: a stronger link is never a darker step', () => {
     const order = [-20, -12, -5, 5, 20]
     const light = order.map((v) => SNR_RAMP_LIGHT.indexOf(snrColor(v, T, false) as never))
     expect(light).toEqual([0, 1, 2, 3, 3])

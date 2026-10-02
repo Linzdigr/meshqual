@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yvanferez/meshqual/backend/internal/geo"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
 	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 	"github.com/yvanferez/meshqual/backend/internal/source"
@@ -147,7 +148,7 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			"backward": l.Backward,
 			"lastSeen": l.LastSeen.UTC().Format(time.RFC3339),
 			"ageSec":   int(time.Since(l.LastSeen).Seconds()),
-			"distKm":   round2(haversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude)),
+			"distKm":   round2(geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude)),
 			// Width is driven by traffic on a log scale: a backbone link carries
 			// orders of magnitude more than a leaf, and a linear width would
 			// make everything but the busiest pair invisible.
@@ -214,7 +215,7 @@ func (s *Server) link(w http.ResponseWriter, r *http.Request) {
 	nb, _ := s.d.Resolver.Get(id.B)
 	out := map[string]any{"link": v, "a": na, "b": nb}
 	if na.HasPosition() && nb.HasPosition() {
-		out["distKm"] = round2(haversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude))
+		out["distKm"] = round2(geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -272,15 +273,3 @@ func toInt(v any) int {
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
-
-// haversineKm is the great-circle distance, used for the link length shown in the
-// detail panel and for sanity-checking implausible hops.
-func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
-	const r = 6371.0088
-	rad := math.Pi / 180
-	dLat := (lat2 - lat1) * rad
-	dLon := (lon2 - lon1) * rad
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
-	return 2 * r * math.Asin(math.Min(1, math.Sqrt(a)))
-}

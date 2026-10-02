@@ -33,6 +33,10 @@ type Config struct {
 	// SNRSamplesPerLink bounds the sample ring the exact percentiles come from.
 	SNRSamplesPerLink int `json:"snrSamplesPerLink"`
 
+	// MaxHopKm is the longest distance accepted for a single radio hop. Longer
+	// pairs come from path hashes colliding across distant meshes. 0 disables it.
+	MaxHopKm float64 `json:"maxHopKm"`
+
 	// PushInterval coalesces live updates. Below about a second the browser
 	// spends more time re-styling the map than the data changes.
 	PushInterval Duration `json:"pushInterval"`
@@ -78,6 +82,7 @@ func Default() Config {
 		LiveWindow:          Duration(24 * time.Hour),
 		FramesPerLink:       20,
 		SNRSamplesPerLink:   256,
+		MaxHopKm:            300,
 		PushInterval:        Duration(2 * time.Second),
 		FlushInterval:       Duration(2 * time.Second),
 		FlushSize:           500,

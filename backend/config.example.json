@@ -22,6 +22,7 @@
   "liveWindow": "24h",
   "framesPerLink": 20,
   "snrSamplesPerLink": 256,
+  "maxHopKm": 300,
 
   "pushInterval": "2s",
   "flushInterval": "2s",

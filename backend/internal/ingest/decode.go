@@ -21,7 +21,10 @@ type Decoded struct {
 	HopsTotal      int
 	HopsUnresolved int
 	HopsAmbiguous  int
-	WireHash       string
+	// LinksImplausible counts hop pairs dropped because their ends are too far
+	// apart to be one radio hop (see Resolver.Plausible).
+	LinksImplausible int
+	WireHash         string
 }
 
 // Decode attributes one observation to zero or more link samples.
@@ -84,6 +87,10 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 			if tr.Hops[i].SNR == nil || !keys[i-1].Resolved() || !keys[i].Resolved() {
 				continue
 			}
+			if !r.Plausible(keys[i-1].Key, keys[i].Key) {
+				d.LinksImplausible++
+				continue
+			}
 			s := base
 			s.Kind = KindTrace
 			s.SNR = tr.Hops[i].SNR
@@ -116,6 +123,10 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		if res[i].Key == res[i+1].Key {
 			continue // a loop in the path is not a link
 		}
+		if !r.Plausible(res[i].Key, res[i+1].Key) {
+			d.LinksImplausible++
+			continue
+		}
 		s := base
 		s.Kind = KindTopology
 		s.HopIndex, s.HopCount = i, len(hops)
@@ -139,6 +150,10 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		lastKey = d.Advert.PublicKeyHex()
 	}
 	if lastKey == "" || lastKey == observer {
+		return d, nil
+	}
+	if !r.Plausible(lastKey, observer) {
+		d.LinksImplausible++
 		return d, nil
 	}
 	s := base

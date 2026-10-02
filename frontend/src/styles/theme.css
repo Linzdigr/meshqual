@@ -16,11 +16,11 @@
 
   --accent: #2a78d6;
 
-  /* SNR ordinal ramp, light steps 250/400/550/700 */
-  --snr-1: #86b6ef;
-  --snr-2: #3987e5;
-  --snr-3: #1c5cab;
-  --snr-4: #0d366b;
+  /* SNR ordinal ramp, weakest to strongest: light steps 700/550/400/250 */
+  --snr-1: #0d366b;
+  --snr-2: #1c5cab;
+  --snr-3: #3987e5;
+  --snr-4: #86b6ef;
 
   --no-data: #52514e;
 
@@ -50,10 +50,10 @@
     --accent: #3987e5;
 
     /* dark steps 150/300/450/600 -- selected for the dark surface, not flipped */
-    --snr-1: #b7d3f6;
-    --snr-2: #6da7ec;
-    --snr-3: #2a78d6;
-    --snr-4: #184f95;
+    --snr-1: #184f95;
+    --snr-2: #2a78d6;
+    --snr-3: #6da7ec;
+    --snr-4: #b7d3f6;
 
     --no-data: #c3c2b7;
   }
@@ -73,10 +73,10 @@
 
   --accent: #3987e5;
 
-  --snr-1: #b7d3f6;
-  --snr-2: #6da7ec;
-  --snr-3: #2a78d6;
-  --snr-4: #184f95;
+  --snr-1: #184f95;
+  --snr-2: #2a78d6;
+  --snr-3: #6da7ec;
+  --snr-4: #b7d3f6;
 
   --no-data: #c3c2b7;
 }

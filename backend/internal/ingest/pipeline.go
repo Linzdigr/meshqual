@@ -230,11 +230,18 @@ func (p *Pipeline) push() {
 }
 
 // WarmFromSamples replays persisted samples into the aggregator at startup so a
-// restart does not blank the map for a full window.
-func (p *Pipeline) WarmFromSamples(samples []Sample) {
+// restart does not blank the map for a full window. It returns how many samples
+// were dropped as implausible.
+func (p *Pipeline) WarmFromSamples(samples []Sample) (dropped int) {
 	// Oldest first, so the frame rings end up in the right order.
 	for i := len(samples) - 1; i >= 0; i-- {
+		// Stored samples predate any change to MaxHopKm, so check them again.
+		if !p.Resolver.Plausible(samples[i].AKey, samples[i].BKey) {
+			dropped++
+			continue
+		}
 		p.Aggregator.Add(&Decoded{Samples: []Sample{samples[i]}})
 	}
 	p.Aggregator.TakeDirty() // a warm-up is not a change to push
+	return dropped
 }

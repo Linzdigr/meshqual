@@ -71,6 +71,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	resolver := ingest.NewResolver()
+	resolver.MaxHopKm = cfg.MaxHopKm
 	aggregator := ingest.NewAggregator(cfg.FramesPerLink, cfg.SNRSamplesPerLink, cfg.LiveWindow.D())
 	events := hub.New(64)
 
@@ -97,8 +98,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 	if samples, err := st.LoadRecentSamples(ctx, time.Now().UTC().Add(-cfg.LiveWindow.D()), 500_000); err != nil {
 		log.Warn("could not warm link table", "err", err)
 	} else if len(samples) > 0 {
-		pipeline.WarmFromSamples(samples)
-		log.Info("link table warmed", "samples", len(samples), "links", aggregator.Health().Links)
+		dropped := pipeline.WarmFromSamples(samples)
+		log.Info("link table warmed", "samples", len(samples), "implausible", dropped,
+			"links", aggregator.Health().Links)
 	}
 
 	sources, err := buildSources(cfg, log)

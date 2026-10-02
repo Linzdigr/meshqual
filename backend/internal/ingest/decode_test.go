@@ -318,3 +318,43 @@ func TestPositionIsNotErasedByLaterAdvert(t *testing.T) {
 		t.Errorf("name = %q, want updated", n.Name)
 	}
 }
+
+// TestDistantHopIsNotALink covers a hash that resolves uniquely to a node on
+// another continent because the real local hop never advertised: the pair must
+// be dropped and counted, for topology and for the measured link alike.
+func TestDistantHopIsNotALink(t *testing.T) {
+	local, remote, obs := pk(0x01), pk(0x02), pk(0x09)
+	r := NewResolver()
+	r.MaxHopKm = 300
+	for _, n := range []struct {
+		key      string
+		lat, lon float64
+	}{
+		{local, 48.11, -1.68},   // Rennes
+		{obs, 48.20, -1.60},     // Rennes area
+		{remote, 32.90, -97.04}, // Dallas
+	} {
+		r.Upsert(Node{Key: n.key, Latitude: f64(n.lat), Longitude: f64(n.lon)})
+	}
+
+	raw := buildFlood([]string{local, remote}, 1, meshcore.PayloadGrpData, []byte("x"))
+	d, err := Decode(source.Observation{
+		ObserverKey: obs, ReceivedAt: time.Now().UTC(), SNR: f64(4), Raw: raw,
+	}, r)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(d.Samples) != 0 {
+		t.Errorf("got %d samples, want none: %+v", len(d.Samples), d.Samples)
+	}
+	if d.LinksImplausible != 2 {
+		t.Errorf("LinksImplausible = %d, want 2 (topology + measured)", d.LinksImplausible)
+	}
+
+	// The same path stays valid once the check is off.
+	r.MaxHopKm = 0
+	d, _ = Decode(source.Observation{ObserverKey: obs, ReceivedAt: time.Now().UTC(), SNR: f64(4), Raw: raw}, r)
+	if len(d.Samples) != 2 {
+		t.Errorf("with MaxHopKm=0 got %d samples, want 2", len(d.Samples))
+	}
+}

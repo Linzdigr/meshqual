@@ -6,7 +6,7 @@
  * measured and rejected: good green (#0ca30c) against critical red (#d03b3b)
  * is only 4.1 ΔE apart under simulated deuteranopia, so the map would be
  * unreadable for roughly 8% of men, and a map cannot label every line to
- * compensate. A single blue hue stepped light→dark survives every colour-vision
+ * compensate. A single blue hue stepped dark→light survives every colour-vision
  * deficiency because luminance is intact in all of them.
  *
  * Both ramps pass the ordinal checks (monotone lightness, adjacent ΔL ≥ 0.06,
@@ -14,13 +14,12 @@
  *   light: steps 250/400/550/700, light end 2.06:1
  *   dark:  steps 150/300/450/600, light end 2.15:1
  *
- * Dark = strong link. A weak link recedes toward the basemap, which is also what
- * it means operationally, and the white/black casing under every line keeps it
- * legible over map tiles regardless.
+ * Light = strong link: index 0 is the weakest bucket and the darkest step. The
+ * white/black casing under every line keeps the light end legible over tiles.
  */
 
-export const SNR_RAMP_LIGHT = ['#86b6ef', '#3987e5', '#1c5cab', '#0d366b'] as const
-export const SNR_RAMP_DARK = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95'] as const
+export const SNR_RAMP_LIGHT = ['#0d366b', '#1c5cab', '#3987e5', '#86b6ef'] as const
+export const SNR_RAMP_DARK = ['#184f95', '#2a78d6', '#6da7ec', '#b7d3f6'] as const
 
 /** No measurement exists for a topology link, so it gets ink, not a 5th ramp step. */
 export const NO_DATA_LIGHT = '#52514e'
@@ -53,10 +52,10 @@ export interface SnrBucket {
 export function snrBuckets(thresholds: readonly number[]): SnrBucket[] {
   const [t0, t1, t2] = thresholds
   return [
-    { from: -Infinity, to: t0!, label: `< ${t0} dB`, note: 'au plancher de démodulation' },
-    { from: t0!, to: t1!, label: `${t0} à ${t1} dB`, note: 'marginal' },
-    { from: t1!, to: t2!, label: `${t1} à ${t2} dB`, note: 'utilisable' },
-    { from: t2!, to: Infinity, label: `≥ ${t2} dB`, note: 'bonne marge' },
+    { from: t2!, to: Infinity, label: `≥ ${t2} dB`, note: 'Lien stable à solide' },
+    { from: t1!, to: t2!, label: `${t1} à ${t2} dB`, note: 'Utilisable' },
+    { from: t0!, to: t1!, label: `${t0} à ${t1} dB`, note: 'Instable' },
+    { from: -Infinity, to: t0!, label: `< ${t0} dB`, note: 'Intermittent' },
   ]
 }
 

@@ -175,13 +175,13 @@ h2 {
 }
 
 .kind.measured {
-  border-color: var(--snr-3);
-  color: var(--snr-3);
+  border-color: var(--snr-2);
+  color: var(--snr-2);
 }
 
 .kind.trace {
-  border-color: var(--snr-4);
-  color: var(--snr-4);
+  border-color: var(--snr-1);
+  color: var(--snr-1);
 }
 
 .live {

@@ -74,6 +74,8 @@ type Aggregator struct {
 	hopsUnres uint64
 	hopsAmbig uint64
 	samplesIn uint64
+
+	implausible uint64
 }
 
 // NewAggregator returns an aggregator retaining maxFrames frames and maxSNR SNR
@@ -104,6 +106,7 @@ func (a *Aggregator) Add(d *Decoded) {
 	a.hopsTotal += uint64(d.HopsTotal)
 	a.hopsUnres += uint64(d.HopsUnresolved)
 	a.hopsAmbig += uint64(d.HopsAmbiguous)
+	a.implausible += uint64(d.LinksImplausible)
 
 	for _, s := range d.Samples {
 		a.samplesIn++
@@ -227,13 +230,15 @@ func (a *Aggregator) Evict(now time.Time) int {
 // Health reports attribution quality: what share of observed hops could not be
 // pinned to exactly one known node.
 type Health struct {
-	Links           int     `json:"links"`
-	Samples         uint64  `json:"samples"`
-	HopsTotal       uint64  `json:"hopsTotal"`
-	HopsUnresolved  uint64  `json:"hopsUnresolved"`
-	HopsAmbiguous   uint64  `json:"hopsAmbiguous"`
-	UnresolvedShare float64 `json:"unresolvedShare"`
-	AmbiguousShare  float64 `json:"ambiguousShare"`
+	Links          int    `json:"links"`
+	Samples        uint64 `json:"samples"`
+	HopsTotal      uint64 `json:"hopsTotal"`
+	HopsUnresolved uint64 `json:"hopsUnresolved"`
+	HopsAmbiguous  uint64 `json:"hopsAmbiguous"`
+	// LinksImplausible counts hop pairs rejected as too long for one radio hop.
+	LinksImplausible uint64  `json:"linksImplausible"`
+	UnresolvedShare  float64 `json:"unresolvedShare"`
+	AmbiguousShare   float64 `json:"ambiguousShare"`
 }
 
 // Health returns the attribution counters.
@@ -243,6 +248,7 @@ func (a *Aggregator) Health() Health {
 	h := Health{
 		Links: len(a.links), Samples: a.samplesIn,
 		HopsTotal: a.hopsTotal, HopsUnresolved: a.hopsUnres, HopsAmbiguous: a.hopsAmbig,
+		LinksImplausible: a.implausible,
 	}
 	if a.hopsTotal > 0 {
 		h.UnresolvedShare = float64(a.hopsUnres) / float64(a.hopsTotal)
