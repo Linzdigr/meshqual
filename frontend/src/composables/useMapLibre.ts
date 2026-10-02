@@ -26,7 +26,7 @@ const LAYER_NODE_LABELS = 'nodes-labels'
  * https://tile.openstreetmap.org
  */
 const TILE_URL =
-  import.meta.env.VITE_TILE_URL ?? 'https://osm-raster.gamma-network.eu/tile/{z}/{x}/{y}.png'
+  import.meta.env.VITE_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as const
 
