@@ -10,7 +10,8 @@ import type {
   ServerConfig,
 } from './types'
 
-const BASE = import.meta.env.VITE_API_BASE ?? ''
+// Origin of the API, without /api and without a trailing slash. Empty means same origin.
+const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '')
 
 class ApiError extends Error {
   constructor(

@@ -39,6 +39,7 @@ services:
       MESHQUAL_CONFIG: /etc/meshqual/config.json
       MESHQUAL_DSN: postgres://meshqual:${POSTGRES_PASSWORD}@timescale:5432/meshqual?sslmode=disable
       MESHQUAL_LOG_LEVEL: ${MESHQUAL_LOG_LEVEL:-info}
+      MESHQUAL_CORS_ORIGINS: ${MESHQUAL_CORS_ORIGINS:-}
       MESHQUAL_MQTT_COMCHAN_USERNAME: ${MESHQUAL_MQTT_COMCHAN_USERNAME:-}
       MESHQUAL_MQTT_COMCHAN_PASSWORD: ${MESHQUAL_MQTT_COMCHAN_PASSWORD:-}
       MESHQUAL_MQTT_LOCAL_URL: ${MESHQUAL_MQTT_LOCAL_URL:-}
@@ -51,7 +52,12 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # Baked into the bundle at build time: rebuild the image after changing them.
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_TILE_URL: ${VITE_TILE_URL:-}
     depends_on:
       - relayd
     ports:

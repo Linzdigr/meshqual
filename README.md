@@ -52,9 +52,14 @@ these environment overrides:
 | `MESHQUAL_REPLAY_FILE` | NDJSON file to replay as an extra source |
 | `MESHQUAL_MQTT_<ID>_URL` / `_USERNAME` / `_PASSWORD` | Override a source's broker settings. `<ID>` is the source `id` in upper case. |
 
-Frontend build-time variables: `VITE_TILE_URL` (raster tile template) and
-`VITE_API_BASE` (API origin, empty for same origin). The Docker image is built
-with the defaults.
+Frontend variables are read at build time, from `.env` by `docker compose build
+web`. Rebuild the image after changing them.
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_BASE` | API origin without `/api`, e.g. `https://api.example.org`. Empty means same origin (Caddy proxies `/api` to relayd). When set, add the frontend origin to `MESHQUAL_CORS_ORIGINS`. |
+| `VITE_TILE_URL` | Raster tile URL template |
+| `MESHQUAL_API_URL` | Proxy target for `/api` in `npm run dev` only |
 
 ### MQTT sources
 
