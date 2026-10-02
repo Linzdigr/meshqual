@@ -46,6 +46,8 @@ services:
       MESHQUAL_MQTT_LOCAL_PASSWORD: ${MESHQUAL_MQTT_LOCAL_PASSWORD:-}
     volumes:
       - ./backend/config.example.json:/etc/meshqual/config.json:ro
+    ports:
+      - "9091:8080"
     restart: unless-stopped
 
   web:
