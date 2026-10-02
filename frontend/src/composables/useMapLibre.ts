@@ -176,6 +176,14 @@ const CHEVRON_OFFSET: ExpressionSpecification = [
 ]
 const EMPHASIZED: ExpressionSpecification = ['==', ['get', 'emphasized'], true]
 
+/**
+ * Opacity of every link layer, set in one place (applyFocus) because selecting
+ * a link fades all the others: the selected link is drawn at full opacity and
+ * the rest drops to FOCUS_DIM, so it reads on its own against the map.
+ */
+const FOCUS_DIM = 0.07
+const NODE_FOCUS_DIM = 0.25
+
 /** A right-pointing chevron in white, used as an SDF icon tinted per theme. */
 function chevronImage(): ImageData {
   const px = 20 // 10 CSS px at pixelRatio 2
@@ -247,7 +255,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
       paint: {
         'line-color': surface,
-        'line-opacity': 0.85,
         'line-width': widthExpr(3),
       },
     },
@@ -276,7 +283,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const },
       paint: {
         'line-color': noData,
-        'line-opacity': 0.45,
         'line-width': WIDTH,
         'line-dasharray': [2, 2] as unknown as ExpressionSpecification,
       },
@@ -292,7 +298,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       paint: {
         'line-color': snrStepExpression(thresholds, dark, 'snrQuality') as unknown as ExpressionSpecification,
         'line-width': WIDTH,
-        'line-opacity': 0.95,
       },
     },
     // Asymmetry view: one lane per direction, coloured by that direction's
@@ -309,7 +314,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'line-width': 1,
         'line-offset': LANE_OFFSET,
         'line-dasharray': [2, 2] as unknown as ExpressionSpecification,
-        'line-opacity': ['case', EMPHASIZED, 0.9, 0.4] as ExpressionSpecification,
       },
     },
     {
@@ -322,8 +326,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'line-color': snrStepExpression(thresholds, dark, 'snr') as unknown as ExpressionSpecification,
         'line-width': LANE_WIDTH,
         'line-offset': LANE_OFFSET,
-        // Symmetric links recede so the asymmetric ones stand out.
-        'line-opacity': ['case', EMPHASIZED, 1, 0.4] as ExpressionSpecification,
       },
     },
     // Chevrons in surface colour, cut into each lane, pointing its way.
@@ -345,7 +347,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       },
       paint: {
         'icon-color': ['case', ['==', ['get', 'measured'], true], surface, noData] as ExpressionSpecification,
-        'icon-opacity': ['case', EMPHASIZED, 1, 0.5] as ExpressionSpecification,
       },
     },
     // Recently heard links, animated in the direction of their newest packet.
@@ -408,6 +409,17 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
   ]
 }
 
+/** Unfocused opacity per link layer. Symmetric lanes recede so asymmetric ones stand out. */
+const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base: unknown }[] = [
+  { layer: LAYER_CASING, prop: 'line-opacity', base: 0.85 },
+  { layer: LAYER_TOPOLOGY, prop: 'line-opacity', base: 0.45 },
+  { layer: LAYER_MEASURED, prop: 'line-opacity', base: 0.95 },
+  { layer: LAYER_LANES_MISSING, prop: 'line-opacity', base: ['case', EMPHASIZED, 0.9, 0.4] },
+  { layer: LAYER_LANES, prop: 'line-opacity', base: ['case', EMPHASIZED, 1, 0.4] },
+  { layer: LAYER_LANE_ARROWS, prop: 'icon-opacity', base: ['case', EMPHASIZED, 1, 0.5] },
+  { layer: LAYER_ACTIVE, prop: 'line-opacity', base: 1 },
+]
+
 export interface UseMapOptions {
   container: Ref<HTMLElement | null>
   dark: Ref<boolean>
@@ -435,6 +447,9 @@ export function useMapLibre(opts: UseMapOptions) {
   let lastDashAt = 0
   /** Links asymmetric beyond the threshold, for the "asymmetric only" filter. */
   let emphasizedIds: string[] = []
+  /** The selected link and its two ends, which stay opaque while the rest fades. */
+  let focusId: string | null = null
+  let focusEnds: string[] = []
 
   function bboxOf(m: MlMap): BBox {
     const b = m.getBounds()
@@ -471,6 +486,7 @@ export function useMapLibre(opts: UseMapOptions) {
       addDataLayers()
       ready = true
       applyView()
+      applyFocus()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       opts.onMoveEnd(bboxOf(map))
@@ -673,8 +689,61 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   function highlight(linkId: string | null) {
+    focusId = linkId
+    const p = linkId ? findLink(linkId)?.properties : undefined
+    focusEnds = p ? [p.aKey, p.bKey] : []
     if (!map || !map.getLayer(LAYER_SELECTED)) return
     map.setFilter(LAYER_SELECTED, ['==', ['get', 'linkId'], linkId ?? '__none__'])
+    applyFocus()
+  }
+
+  function findLink(linkId: string) {
+    return pendingLinks?.features.find((f) => f.properties.linkId === linkId)
+  }
+
+  /** Fades everything but the selected link and its two ends; restores it all without one. */
+  function applyFocus() {
+    if (!map || !ready) return
+    const selected: ExpressionSpecification = ['==', ['get', 'linkId'], focusId ?? '__none__']
+    for (const { layer, prop, base } of LINK_OPACITY) {
+      map.setPaintProperty(layer, prop, focusId ? ['case', selected, 1, FOCUS_DIM] : base)
+    }
+    const isEnd: ExpressionSpecification = ['in', ['get', 'key'], ['literal', focusEnds]]
+    const nodeOpacity = focusId ? ['case', isEnd, 1, NODE_FOCUS_DIM] : 1
+    map.setPaintProperty(LAYER_NODES, 'circle-opacity', nodeOpacity)
+    map.setPaintProperty(LAYER_NODES, 'circle-stroke-opacity', nodeOpacity)
+    // Only the two ends keep a label: other labels would compete for the space.
+    map.setFilter(LAYER_NODE_LABELS, focusId ? isEnd : null)
+  }
+
+  /**
+   * Frames the link so it fills the part of the map left visible by the
+   * overlays, given as padding in pixels.
+   */
+  function focusLink(linkId: string, padding: { top: number; right: number; bottom: number; left: number }) {
+    const f = findLink(linkId)
+    if (!map || !f || f.geometry.type !== 'LineString') return
+    const [a, b] = f.geometry.coordinates as [number[], number[]]
+    // fitBounds refuses padding wider than the map; shrink it proportionally.
+    const { clientWidth: w, clientHeight: h } = map.getContainer()
+    const sx = Math.min(1, (w - 80) / (padding.left + padding.right))
+    const sy = Math.min(1, (h - 80) / (padding.top + padding.bottom))
+    map.fitBounds(
+      [
+        [Math.min(a[0]!, b[0]!), Math.min(a[1]!, b[1]!)],
+        [Math.max(a[0]!, b[0]!), Math.max(a[1]!, b[1]!)],
+      ],
+      {
+        padding: {
+          top: padding.top * sy,
+          bottom: padding.bottom * sy,
+          left: padding.left * sx,
+          right: padding.right * sx,
+        },
+        maxZoom: 15,
+        duration: 600,
+      },
+    )
   }
 
   /** Re-theme in place: dark mode gets its own steps, not an automatic flip. */
@@ -699,6 +768,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setPaintProperty('basemap', 'raster-brightness-max', dark ? 0.55 : 1)
     addDataLayers()
     applyView()
+    applyFocus()
     syncActive()
   }
 
@@ -719,5 +789,5 @@ export function useMapLibre(opts: UseMapOptions) {
     ready = false
   })
 
-  return { mount, setLinks, setNodes, highlight, retheme, fitTo, applyView }
+  return { mount, setLinks, setNodes, highlight, retheme, fitTo, applyView, focusLink }
 }

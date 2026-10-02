@@ -75,6 +75,12 @@ watch(
 )
 watch(() => props.selectedLinkId, (id) => map.highlight(id))
 
+defineExpose({
+  /** Frames a link inside the map area left free by the overlays (padding in px). */
+  focus: (linkId: string, padding: { top: number; right: number; bottom: number; left: number }) =>
+    map.focusLink(linkId, padding),
+})
+
 watch(
   () => [props.mode, props.asymOnly] as const,
   ([mode, only]) => {

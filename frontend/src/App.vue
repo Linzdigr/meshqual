@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
@@ -13,6 +13,41 @@ const store = useMeshStore()
 const { mode, dark, cycle } = useTheme()
 
 const selectedRef = computed(() => store.selectedLinkId)
+
+const mainEl = ref<HTMLElement | null>(null)
+const legendEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const meshMap = ref<InstanceType<typeof MeshMap> | null>(null)
+
+/**
+ * Map area hidden by the overlays, as fitBounds padding. On a narrow screen the
+ * panel is docked at the bottom across the full width, so it pads the bottom.
+ */
+function focusPadding() {
+  const gap = 32
+  // Node labels hang below their point: leave them room at the top and bottom.
+  const pad = { top: gap + 24, right: gap, bottom: gap + 24, left: gap }
+  const m = mainEl.value?.getBoundingClientRect()
+  if (!m) return pad
+  const l = legendEl.value?.getBoundingClientRect()
+  if (l && l.width > 0) pad.left = l.right - m.left + gap
+  const r = panelEl.value?.getBoundingClientRect()
+  if (r && r.width > 0) {
+    if (r.width > m.width * 0.7) pad.bottom = m.bottom - r.top + gap
+    else pad.right = m.right - r.left + gap
+  }
+  return pad
+}
+
+// Frame the selected link once its panel is laid out, so the padding is real.
+watch(
+  () => store.selectedLinkId,
+  async (id) => {
+    if (!id) return
+    await nextTick()
+    requestAnimationFrame(() => meshMap.value?.focus(id, focusPadding()))
+  },
+)
 
 /**
  * Refresh policy.
@@ -93,8 +128,9 @@ watch(
       @cycle-theme="cycle"
     />
 
-    <main>
+    <main ref="mainEl">
       <MeshMap
+        ref="meshMap"
         :links="store.links"
         :nodes="store.nodes"
         :selected-link-id="store.selectedLinkId"
@@ -107,7 +143,7 @@ watch(
         @select="(id) => store.selectLink(id)"
       />
 
-      <div class="overlay left">
+      <div ref="legendEl" class="overlay left">
         <SnrLegend
           :thresholds="store.snrThresholds"
           :kinds="store.kinds"
@@ -122,7 +158,7 @@ watch(
         />
       </div>
 
-      <div v-if="store.selectedLink" class="overlay right">
+      <div v-if="store.selectedLink" ref="panelEl" class="overlay right">
         <LinkPanel
           :link="store.selectedLink"
           :frames="store.frames"
