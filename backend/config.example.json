@@ -1,0 +1,33 @@
+{
+  "addr": ":8080",
+  "dsn": "postgres://meshqual:meshqual@localhost:5432/meshqual?sslmode=disable",
+
+  "sources": [
+    {
+      "id": "comchan",
+      "brokerUrl": "mqtts://mqtt.comchan.net:8883",
+      "username": "mc_uplink",
+      "password": "mc_uplink",
+      "topics": ["meshcore/+/+/packets"],
+      "queueSize": 8192
+    },
+    {
+      "id": "local",
+      "brokerUrl": "mqtt://mosquitto:1883",
+      "topics": ["meshcore/+/+/packets"],
+      "queueSize": 4096
+    }
+  ],
+
+  "liveWindow": "24h",
+  "framesPerLink": 20,
+  "snrSamplesPerLink": 256,
+
+  "pushInterval": "2s",
+  "flushInterval": "2s",
+  "flushSize": 500,
+
+  "persistObservations": true,
+  "corsOrigins": ["http://localhost:5173"],
+  "logLevel": "info"
+}

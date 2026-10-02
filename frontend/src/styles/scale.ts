@@ -1,0 +1,92 @@
+/**
+ * SNR colour scale.
+ *
+ * SNR is a magnitude, so it gets an ORDINAL one-hue ramp: lightness carries the
+ * order. The obvious alternative -- a red/orange/green "quality" scale -- was
+ * measured and rejected: good green (#0ca30c) against critical red (#d03b3b)
+ * is only 4.1 ΔE apart under simulated deuteranopia, so the map would be
+ * unreadable for roughly 8% of men, and a map cannot label every line to
+ * compensate. A single blue hue stepped light→dark survives every colour-vision
+ * deficiency because luminance is intact in all of them.
+ *
+ * Both ramps pass the ordinal checks (monotone lightness, adjacent ΔL ≥ 0.06,
+ * light end ≥ 2:1 against its own surface, single hue):
+ *   light: steps 250/400/550/700, light end 2.06:1
+ *   dark:  steps 150/300/450/600, light end 2.15:1
+ *
+ * Dark = strong link. A weak link recedes toward the basemap, which is also what
+ * it means operationally, and the white/black casing under every line keeps it
+ * legible over map tiles regardless.
+ */
+
+export const SNR_RAMP_LIGHT = ['#86b6ef', '#3987e5', '#1c5cab', '#0d366b'] as const
+export const SNR_RAMP_DARK = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95'] as const
+
+/** No measurement exists for a topology link, so it gets ink, not a 5th ramp step. */
+export const NO_DATA_LIGHT = '#52514e'
+export const NO_DATA_DARK = '#c3c2b7'
+
+export const SURFACE_LIGHT = '#fcfcfb'
+export const SURFACE_DARK = '#1a1a19'
+
+/** Single-series accent for the sparkline (categorical slot 1). */
+export const ACCENT_LIGHT = '#2a78d6'
+export const ACCENT_DARK = '#3987e5'
+
+/** Default bucket edges in dB; the server sends its own via /api/config. */
+export const DEFAULT_SNR_THRESHOLDS = [-12, -5, 5] as const
+
+export interface SnrBucket {
+  /** Inclusive lower bound in dB, or -Infinity. */
+  from: number
+  /** Exclusive upper bound in dB, or Infinity. */
+  to: number
+  label: string
+  /** Short operational reading, shown in the legend next to the dB range. */
+  note: string
+}
+
+/**
+ * Bucket labels. The ramp is ordinal, so the legend must spell out the dB range:
+ * the colour alone is an ordering, not a value.
+ */
+export function snrBuckets(thresholds: readonly number[]): SnrBucket[] {
+  const [t0, t1, t2] = thresholds
+  return [
+    { from: -Infinity, to: t0!, label: `< ${t0} dB`, note: 'au plancher de démodulation' },
+    { from: t0!, to: t1!, label: `${t0} à ${t1} dB`, note: 'marginal' },
+    { from: t1!, to: t2!, label: `${t1} à ${t2} dB`, note: 'utilisable' },
+    { from: t2!, to: Infinity, label: `≥ ${t2} dB`, note: 'bonne marge' },
+  ]
+}
+
+/** Index of the bucket an SNR value falls in. */
+export function snrBucketIndex(snr: number, thresholds: readonly number[]): number {
+  let i = 0
+  for (const t of thresholds) {
+    if (snr < t) return i
+    i++
+  }
+  return i
+}
+
+export function snrColor(snr: number, thresholds: readonly number[], dark: boolean): string {
+  const ramp = dark ? SNR_RAMP_DARK : SNR_RAMP_LIGHT
+  return ramp[snrBucketIndex(snr, thresholds)] ?? ramp[ramp.length - 1]!
+}
+
+/**
+ * A MapLibre `step` expression over the snrMedian property.
+ *
+ * Discrete buckets rather than a continuous `interpolate`: four steps with a
+ * labelled legend are readable on a busy map, where a continuous ramp asks the
+ * eye to decode a lightness it cannot measure against a moving basemap.
+ */
+export function snrStepExpression(thresholds: readonly number[], dark: boolean): unknown[] {
+  const ramp = dark ? SNR_RAMP_DARK : SNR_RAMP_LIGHT
+  const expr: unknown[] = ['step', ['get', 'snrMedian'], ramp[0]]
+  thresholds.forEach((t, i) => {
+    expr.push(t, ramp[i + 1] ?? ramp[ramp.length - 1])
+  })
+  return expr
+}

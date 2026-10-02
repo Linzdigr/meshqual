@@ -1,0 +1,7 @@
+bin/
+node_modules/
+dist/
+.env
+*.ndjson
+capture.ndjson
+e2e-out.png

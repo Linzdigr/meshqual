@@ -1,0 +1,61 @@
+name: meshqual
+
+services:
+  timescale:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_DB: meshqual
+      POSTGRES_USER: meshqual
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshqual -d meshqual"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Optional: your own broker, for observers you run yourself. The public
+  # community broker needs none of this.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    ports:
+      - "1883:1883"
+    restart: unless-stopped
+
+  relayd:
+    build:
+      context: ./backend
+      args:
+        VERSION: ${VERSION:-dev}
+    depends_on:
+      timescale:
+        condition: service_healthy
+    environment:
+      MESHQUAL_CONFIG: /etc/meshqual/config.json
+      MESHQUAL_DSN: postgres://meshqual:${POSTGRES_PASSWORD}@timescale:5432/meshqual?sslmode=disable
+      MESHQUAL_LOG_LEVEL: ${MESHQUAL_LOG_LEVEL:-info}
+      MESHQUAL_MQTT_COMCHAN_USERNAME: ${MESHQUAL_MQTT_COMCHAN_USERNAME:-}
+      MESHQUAL_MQTT_COMCHAN_PASSWORD: ${MESHQUAL_MQTT_COMCHAN_PASSWORD:-}
+      MESHQUAL_MQTT_LOCAL_URL: ${MESHQUAL_MQTT_LOCAL_URL:-}
+      MESHQUAL_MQTT_LOCAL_USERNAME: ${MESHQUAL_MQTT_LOCAL_USERNAME:-}
+      MESHQUAL_MQTT_LOCAL_PASSWORD: ${MESHQUAL_MQTT_LOCAL_PASSWORD:-}
+    volumes:
+      - ./backend/config.example.json:/etc/meshqual/config.json:ro
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    depends_on:
+      - relayd
+    ports:
+      - "9090:8081"
+    restart: unless-stopped
+
+volumes:
+  timescale-data:
+  mosquitto-data:
