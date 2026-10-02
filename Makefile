@@ -34,10 +34,3 @@ logs: ## Follow the backend logs
 capture: ## Record live MQTT traffic to an NDJSON replay file
 	@echo "mosquitto_sub -h mqtt.comchan.net -p 8883 --capath /etc/ssl/certs \\"
 	@echo "  -u mc_uplink -P mc_uplink -t 'meshcore/+/+/packets' -F '{\"topic\":\"%t\",\"payload\":%p}' > capture.ndjson"
-
-unsandbox: ## Drop the sandbox-only replace block from go.mod (run once, on a normal network)
-	cd backend && \
-	  sed -i.bak '/Sandbox-only shims/,/^)$$/d' go.mod && \
-	  rm -rf .sandbox go.sum go.mod.bak && \
-	  go mod tidy && \
-	  go build ./... && echo "go.mod cleaned"
