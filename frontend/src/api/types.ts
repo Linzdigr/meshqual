@@ -28,8 +28,23 @@ export interface LinkProperties {
   snrMin?: number
   snrMax?: number
   snrCount?: number
+  /** The weaker direction's median; what the map colours by default. */
+  snrQuality?: number
+  /** What snrQuality rests on: both directions, one only, or too few samples in either. */
+  snrBasis?: SnrBasis
+  /** A → B is what B measured hearing A. */
+  snrMedianAB?: number
+  snrP10AB?: number
+  snrCountAB?: number
+  snrMedianBA?: number
+  snrP10BA?: number
+  snrCountBA?: number
+  /** Median A → B minus median B → A, only when snrBasis is 'both'. */
+  snrDelta?: number
   rssiMean?: number
 }
+
+export type SnrBasis = 'both' | 'oneWay' | 'few'
 
 export interface NodeProperties {
   key: string
@@ -106,6 +121,8 @@ export interface ServerConfig {
   /** Three edges defining four SNR buckets, in dB. */
   snrThresholds: [number, number, number] | number[]
   snrRange: [number, number] | number[]
+  /** Gap between direction medians from which the asymmetry view highlights a link. */
+  asymmetryThresholdDb?: number
 }
 
 export interface SourceStats {

@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import { useMapLibre } from '@/composables/useMapLibre'
+import type { ViewMode } from '@/map/lanes'
 
 const props = defineProps<{
   links: FeatureCollection<LinkProperties>
@@ -9,6 +10,9 @@ const props = defineProps<{
   selectedLinkId: string | null
   thresholds: number[]
   dark: boolean
+  mode: ViewMode
+  asymOnly: boolean
+  asymThreshold: number
 }>()
 
 const emit = defineEmits<{
@@ -19,11 +23,17 @@ const emit = defineEmits<{
 const container = ref<HTMLElement | null>(null)
 const thresholdsRef = ref(props.thresholds)
 const darkRef = ref(props.dark)
+const modeRef = ref(props.mode)
+const asymOnlyRef = ref(props.asymOnly)
+const asymThresholdRef = ref(props.asymThreshold)
 
 const map = useMapLibre({
   container,
   dark: darkRef,
   thresholds: thresholdsRef,
+  mode: modeRef,
+  asymOnly: asymOnlyRef,
+  asymThreshold: asymThresholdRef,
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
 })
@@ -64,6 +74,24 @@ watch(
   },
 )
 watch(() => props.selectedLinkId, (id) => map.highlight(id))
+
+watch(
+  () => [props.mode, props.asymOnly] as const,
+  ([mode, only]) => {
+    modeRef.value = mode
+    asymOnlyRef.value = only
+    map.applyView()
+  },
+)
+
+// The threshold decides which lanes are emphasized, which is baked into the data.
+watch(
+  () => props.asymThreshold,
+  (t) => {
+    asymThresholdRef.value = t
+    map.setLinks(props.links)
+  },
+)
 
 watch(
   () => [props.dark, props.thresholds] as const,

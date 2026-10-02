@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api, type LinksQuery } from '@/api/client'
 import type {
@@ -14,8 +14,21 @@ import type {
   ServerConfig,
 } from '@/api/types'
 import { DEFAULT_SNR_THRESHOLDS } from '@/styles/scale'
+import { isAsymmetric, type ViewMode } from '@/map/lanes'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
+
+const VIEW_KEY = 'meshqual.view'
+
+/** View preferences are per browser; storage may be unavailable, so it is optional. */
+function loadView(): { mode: ViewMode; asymOnly: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<{ mode: string; asymOnly: boolean }>
+    return { mode: v.mode === 'asymmetry' ? 'asymmetry' : 'quality', asymOnly: v.asymOnly === true }
+  } catch {
+    return { mode: 'quality', asymOnly: false }
+  }
+}
 
 export const useMeshStore = defineStore('mesh', () => {
   // shallowRef: these collections are replaced wholesale and handed straight to
@@ -36,6 +49,15 @@ export const useMeshStore = defineStore('mesh', () => {
   const kinds = ref<LinkKind[]>(['measured', 'trace', 'topology'])
   const minSamples = ref(1)
 
+  const savedView = loadView()
+  const viewMode = ref<ViewMode>(savedView.mode)
+  const asymOnly = ref(savedView.asymOnly)
+  watch([viewMode, asymOnly], ([mode, only]) => {
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only }))
+    } catch {}
+  })
+
   const loading = ref(false)
   const error = ref<string | null>(null)
   const lastRefresh = ref<Date | null>(null)
@@ -45,6 +67,10 @@ export const useMeshStore = defineStore('mesh', () => {
   )
   const framesMax = computed(() => config.value?.framesMax ?? 20)
   const pushIntervalMs = computed(() => config.value?.pushIntervalMs ?? 2000)
+  const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
+  const asymmetricCount = computed(
+    () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
+  )
 
   const selectedLink = computed(() => {
     if (!selectedLinkId.value) return null
@@ -161,6 +187,10 @@ export const useMeshStore = defineStore('mesh', () => {
     bbox,
     kinds,
     minSamples,
+    viewMode,
+    asymOnly,
+    asymmetryThresholdDb,
+    asymmetricCount,
     loading,
     error,
     lastRefresh,

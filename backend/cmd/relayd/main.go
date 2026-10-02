@@ -73,6 +73,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	resolver := ingest.NewResolver()
 	resolver.MaxHopKm = cfg.MaxHopKm
 	aggregator := ingest.NewAggregator(cfg.FramesPerLink, cfg.SNRSamplesPerLink, cfg.LiveWindow.D())
+	aggregator.MinDirectionSamples = cfg.MinDirectionSamples
 	events := hub.New(64)
 
 	// Warm up from storage so a restart does not blank the map for a full window.
@@ -137,7 +138,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Store: st, Hub: events, Sources: sources, Log: log,
 		CORSOrigins: cfg.CORSOrigins, PushInterval: cfg.PushInterval.D(),
 		LiveWindow: cfg.LiveWindow.D(), FramesMax: cfg.FramesPerLink,
-		Version: version, StartedAt: time.Now().UTC(),
+		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
+		Version:              version, StartedAt: time.Now().UTC(),
 	})
 
 	srv := &http.Server{

@@ -30,8 +30,10 @@ type Deps struct {
 	PushInterval time.Duration
 	LiveWindow   time.Duration
 	FramesMax    int
-	Version      string
-	StartedAt    time.Time
+	// AsymmetryThresholdDb is passed to the UI for its asymmetry view.
+	AsymmetryThresholdDb float64
+	Version              string
+	StartedAt            time.Time
 }
 
 // Server holds the router.

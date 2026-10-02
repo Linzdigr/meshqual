@@ -129,3 +129,68 @@ func TestAggregatorTracksNewestSample(t *testing.T) {
 		t.Errorf("LastSNR = %v, want nil: the newest sample carried no SNR", *v.LastSNR)
 	}
 }
+
+func addN(ag *Aggregator, from, to string, snr float64, n int, at time.Time) {
+	for i := 0; i < n; i++ {
+		ag.Add(&Decoded{Samples: []Sample{sampleAt(from, to, KindMeasured, f64(snr), at.Add(time.Duration(i)*time.Millisecond))}})
+	}
+}
+
+func TestQualityIsTheWeakerDirection(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	// A->B is strong and busy, B->A weak and rare: the pooled median would sit
+	// near +10 and hide the weak half.
+	addN(ag, "A", "B", 10, 20, now)
+	addN(ag, "B", "A", -8, 4, now)
+
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.SNRAB == nil || v.SNRAB.Count != 20 || v.SNRAB.Median != 10 {
+		t.Errorf("SNRAB = %+v, want 20 values at 10", v.SNRAB)
+	}
+	if v.SNRBA == nil || v.SNRBA.Count != 4 || v.SNRBA.Median != -8 {
+		t.Errorf("SNRBA = %+v, want 4 values at -8", v.SNRBA)
+	}
+	if v.Quality == nil || *v.Quality != -8 || v.SNRBasis != "both" {
+		t.Errorf("quality = %v basis %q, want -8 on both", v.Quality, v.SNRBasis)
+	}
+	if v.Delta == nil || *v.Delta != 18 {
+		t.Errorf("delta = %v, want 18 (A->B minus B->A)", v.Delta)
+	}
+}
+
+func TestQualityIgnoresThinDirection(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	addN(ag, "A", "B", 10, 5, now)
+	addN(ag, "B", "A", -15, 2, now) // below MinDirectionSamples (3)
+
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.Quality == nil || *v.Quality != 10 || v.SNRBasis != "oneWay" {
+		t.Errorf("quality = %v basis %q, want 10 oneWay", v.Quality, v.SNRBasis)
+	}
+	if v.Delta != nil {
+		t.Errorf("delta = %v, want nil: B->A is too thin to compare", *v.Delta)
+	}
+}
+
+func TestQualityFallsBackToPooledMedian(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	addN(ag, "A", "B", 4, 2, now)
+	addN(ag, "B", "A", 0, 1, now)
+
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.Quality == nil || *v.Quality != 4 || v.SNRBasis != "few" {
+		t.Errorf("quality = %v basis %q, want pooled median 4 with basis few", v.Quality, v.SNRBasis)
+	}
+}
+
+func TestNoSNRMeansNoQuality(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTopology, nil, time.Now())}})
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.Quality != nil || v.SNRBasis != "" || v.SNRAB != nil || v.SNRBA != nil {
+		t.Errorf("topology-only link got SNR fields: %+v", v)
+	}
+}

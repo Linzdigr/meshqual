@@ -33,6 +33,13 @@ type Config struct {
 	// SNRSamplesPerLink bounds the sample ring the exact percentiles come from.
 	SNRSamplesPerLink int `json:"snrSamplesPerLink"`
 
+	// MinDirectionSamples is how many SNR values a direction needs to count
+	// towards the link quality (the weaker direction's median).
+	MinDirectionSamples int `json:"minDirectionSamples"`
+	// AsymmetryThresholdDb is the gap between direction medians from which the
+	// map's asymmetry view highlights a link.
+	AsymmetryThresholdDb float64 `json:"asymmetryThresholdDb"`
+
 	// MaxHopKm is the longest distance accepted for a single radio hop. Longer
 	// pairs come from path hashes colliding across distant meshes. 0 disables it.
 	MaxHopKm float64 `json:"maxHopKm"`
@@ -78,16 +85,18 @@ func (d Duration) D() time.Duration { return time.Duration(d) }
 // Default returns a configuration that boots with no database and no broker.
 func Default() Config {
 	return Config{
-		Addr:                ":8080",
-		LiveWindow:          Duration(24 * time.Hour),
-		FramesPerLink:       20,
-		SNRSamplesPerLink:   256,
-		MaxHopKm:            300,
-		PushInterval:        Duration(2 * time.Second),
-		FlushInterval:       Duration(2 * time.Second),
-		FlushSize:           500,
-		PersistObservations: true,
-		LogLevel:            "info",
+		Addr:                 ":8080",
+		LiveWindow:           Duration(24 * time.Hour),
+		FramesPerLink:        20,
+		SNRSamplesPerLink:    256,
+		MaxHopKm:             300,
+		MinDirectionSamples:  3,
+		AsymmetryThresholdDb: 6,
+		PushInterval:         Duration(2 * time.Second),
+		FlushInterval:        Duration(2 * time.Second),
+		FlushSize:            500,
+		PersistObservations:  true,
+		LogLevel:             "info",
 	}
 }
 

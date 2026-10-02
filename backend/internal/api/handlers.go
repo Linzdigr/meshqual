@@ -54,6 +54,9 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 		// not. Tune these to the spreading factor actually in use.
 		"snrThresholds": []float64{-12, -5, 5},
 		"snrRange":      []float64{-20, 15},
+		// Gap between direction medians from which the asymmetry view
+		// highlights a link.
+		"asymmetryThresholdDb": s.d.AsymmetryThresholdDb,
 	})
 }
 
@@ -161,6 +164,23 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			props["snrMin"] = l.SNR.Min
 			props["snrMax"] = l.SNR.Max
 			props["snrCount"] = l.SNR.Count
+		}
+		if l.Quality != nil {
+			props["snrQuality"] = *l.Quality
+			props["snrBasis"] = l.SNRBasis
+		}
+		if l.SNRAB != nil {
+			props["snrMedianAB"] = l.SNRAB.Median
+			props["snrP10AB"] = l.SNRAB.P10
+			props["snrCountAB"] = l.SNRAB.Count
+		}
+		if l.SNRBA != nil {
+			props["snrMedianBA"] = l.SNRBA.Median
+			props["snrP10BA"] = l.SNRBA.P10
+			props["snrCountBA"] = l.SNRBA.Count
+		}
+		if l.Delta != nil {
+			props["snrDelta"] = *l.Delta
 		}
 		if l.LastSNR != nil {
 			props["lastSnr"] = *l.LastSNR

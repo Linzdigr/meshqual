@@ -100,6 +100,16 @@ in three kinds:
 A hop whose hash matches several known nodes creates no link. A link is only
 drawn when both ends have advertised a position.
 
+SNR is kept per direction of transmission (A → B is what B measured hearing A).
+A link's colour is the weaker direction's median, counting only directions with
+at least `minDirectionSamples` (default 3) values; with a single observer this is
+usually the only measured direction. The map's **Asymmetry** view draws one lane
+per direction instead, and highlights links whose direction medians differ by at
+least `asymmetryThresholdDb` (default 6 dB).
+
+Links longer than `maxHopKm` (default 300 km) are dropped as path-hash collisions
+between distant meshes.
+
 SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
 
 ## API

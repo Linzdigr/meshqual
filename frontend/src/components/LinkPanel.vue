@@ -9,6 +9,7 @@ const props = defineProps<{
   frames: Frame[]
   history: HistoryBucket[]
   thresholds: number[]
+  asymThreshold: number
   live: boolean
 }>()
 
@@ -81,31 +82,68 @@ const kindLabel: Record<string, string> = {
   topology: 'Topologique',
 }
 
+interface Tile {
+  label: string
+  value: string
+  unit?: string
+  hint?: string
+  /** Beyond a threshold: flagged with an icon as well as the text, never colour alone. */
+  alert?: boolean
+}
+
+const basisHint: Record<string, string> = {
+  both: 'le plus faible des deux sens',
+  oneWay: 'un seul sens mesuré',
+  few: 'peu de mesures : médiane globale',
+}
+
+function directionTile(label: string, median?: number, p10?: number, count?: number): Tile {
+  if (median === undefined || !count) return { label, value: '—', hint: 'non mesuré' }
+  return {
+    label,
+    value: median.toFixed(1),
+    unit: 'dB',
+    hint: `p10 ${p10?.toFixed(1) ?? '—'} · ${count} mesure${count > 1 ? 's' : ''}`,
+  }
+}
+
 const tiles = computed(() => {
   const l = props.link
   if (!l) return []
-  const out: { label: string; value: string; unit?: string; hint?: string }[] = []
+  const out: Tile[] = []
+  const a = l.aName || l.aKey.slice(0, 8)
+  const b = l.bName || l.bKey.slice(0, 8)
 
-  if (l.snrMedian !== undefined) {
+  // Directions first, side by side: they are what the other tiles summarise.
+  if (l.kind !== 'topology') {
+    out.push(directionTile(`${a} → ${b}`, l.snrMedianAB, l.snrP10AB, l.snrCountAB))
+    out.push(directionTile(`${b} → ${a}`, l.snrMedianBA, l.snrP10BA, l.snrCountBA))
+  }
+
+  if (l.snrQuality !== undefined) {
     out.push({
-      label: 'SNR médian',
-      value: l.snrMedian.toFixed(1),
+      label: 'Qualité',
+      value: l.snrQuality.toFixed(1),
       unit: 'dB',
-      hint: `${l.snrCount ?? 0} mesures`,
+      hint: basisHint[l.snrBasis ?? 'few'],
     })
-    if (l.snrP10 !== undefined) {
-      out.push({
-        label: 'SNR p10',
-        value: l.snrP10.toFixed(1),
-        unit: 'dB',
-        hint: 'le décile bas : les évanouissements',
-      })
-    }
   } else {
     out.push({
       label: 'SNR',
       value: '—',
       hint: 'aucune mesure pour ce type de lien',
+    })
+  }
+
+  if (l.snrDelta !== undefined) {
+    const gap = Math.abs(l.snrDelta)
+    const alert = gap >= props.asymThreshold
+    out.push({
+      label: 'Asymétrie',
+      value: gap.toFixed(1),
+      unit: 'dB',
+      hint: `${alert ? 'au-delà' : 'en dessous'} du seuil de ${props.asymThreshold} dB`,
+      alert,
     })
   }
 
@@ -152,9 +190,10 @@ const tiles = computed(() => {
       </header>
 
       <div class="tiles">
-        <div v-for="t in tiles" :key="t.label" class="tile">
-          <span class="t-label">{{ t.label }}</span>
+        <div v-for="t in tiles" :key="t.label" class="tile" :class="{ alert: t.alert }">
+          <span class="t-label" :title="t.label">{{ t.label }}</span>
           <span class="t-value mono">
+            <i v-if="t.alert" class="pi pi-exclamation-triangle" aria-hidden="true" />
             {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
           </span>
           <span v-if="t.hint" class="t-hint">{{ t.hint }}</span>
@@ -337,7 +376,8 @@ h2 {
 
 .tiles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …): long node names must truncate, not widen the grid. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -355,6 +395,15 @@ h2 {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--text-secondary);
+  /* Direction tiles carry node names, which can be long. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile.alert .pi {
+  font-size: 13px;
+  color: var(--status-warning);
 }
 
 .t-value {

@@ -23,6 +23,8 @@
   "framesPerLink": 20,
   "snrSamplesPerLink": 256,
   "maxHopKm": 300,
+  "minDirectionSamples": 3,
+  "asymmetryThresholdDb": 6,
 
   "pushInterval": "2s",
   "flushInterval": "2s",

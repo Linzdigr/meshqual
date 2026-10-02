@@ -9,15 +9,21 @@ import {
   SURFACE_LIGHT,
   snrStepExpression,
 } from '@/styles/scale'
+import { buildLanes, isAsymmetric, laneId, type ViewMode } from '@/map/lanes'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
 /** Links heard in the last ACTIVE_MS, oriented in the direction of their newest packet. */
 export const ACTIVE_SOURCE = 'links-active'
+/** One lane per direction of each link, for the asymmetry view (see map/lanes.ts). */
+export const LANES_SOURCE = 'lanes'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
 const LAYER_MEASURED = 'links-measured'
+const LAYER_LANES = 'lanes-measured'
+const LAYER_LANES_MISSING = 'lanes-missing'
+const LAYER_LANE_ARROWS = 'lanes-arrows'
 const LAYER_ACTIVE = 'links-active-line'
 const LAYER_SELECTED = 'links-selected'
 const LAYER_NODES = 'nodes-circles'
@@ -65,10 +71,17 @@ const MEASURED_FILTER: ExpressionSpecification = ['!=', ['get', 'kind'], 'topolo
 
 interface ActiveProperties {
   linkId: string
+  /** The lane of the newest packet's direction, hidden while this one animates. */
+  laneId: string
+  /** Whether the link is drawn as lanes in the asymmetry view (not topology). */
+  lanes: boolean
+  emphasized: boolean
   weight: number
-  /** SNR of the newest packet, else the link median; absent when neither exists. */
+  /** SNR of the newest packet, else its direction's median, else the link quality. */
   snrActive?: number
 }
+
+const CHEVRON = 'chevron'
 
 /**
  * Width is driven by traffic on a log scale (`weight` = log10(samples+1)): a
@@ -79,19 +92,107 @@ interface ActiveProperties {
  * interpolate, so the extra width of the casing and the selection ring is baked
  * into the inner outputs rather than wrapped in an arithmetic expression.
  */
+function widthAt(zoom: 5 | 11, extra: number): ExpressionSpecification {
+  const [lo, hi] = zoom === 5 ? [0.8, 2.5] : [1.6, 6]
+  return ['interpolate', ['linear'], ['get', 'weight'], 0, lo + extra, 4, hi + extra]
+}
+
 function widthExpr(extra = 0): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], 5, widthAt(5, extra), 11, widthAt(11, extra)]
+}
+
+const WIDTH = widthExpr()
+
+/*
+ * Asymmetry view geometry. Lanes have a fixed width per zoom (traffic no longer
+ * drives it) so the direction chevrons can sit exactly on them. Each lane is
+ * offset by half its width plus a 0.5px gap, to the right of its direction.
+ */
+type LaneStops = { 5: number; 11: number; 15: number }
+const LANE_WIDTH_AT: LaneStops = { 5: 1.5, 11: 3.5, 15: 6 }
+const LANE_OFFSET_AT: LaneStops = { 5: 1.25, 11: 2.25, 15: 3.5 }
+/** Both lanes plus a 1.5px surface ring each side. */
+const LANE_CASING_AT: LaneStops = { 5: 7, 11: 11, 15: 16 }
+const LANE_SELECTED_AT: LaneStops = LANE_CASING_AT
+
+/**
+ * Zoom-interpolated: `lanes` stops where `hasLanes` holds, else `otherwise` or
+ * the traffic width. The zoom has to stay the top-level input, so the per-feature
+ * case goes inside each stop.
+ */
+function laneAware(
+  hasLanes: ExpressionSpecification,
+  lanes: LaneStops,
+  extra: number,
+  otherwise?: number,
+): ExpressionSpecification {
+  // Traffic widths stop growing at zoom 11; lanes keep growing to 15.
+  const other = (z: 5 | 11) => otherwise ?? widthAt(z, extra)
   return [
     'interpolate',
     ['linear'],
     ['zoom'],
     5,
-    ['interpolate', ['linear'], ['get', 'weight'], 0, 0.8 + extra, 4, 2.5 + extra],
+    ['case', hasLanes, lanes[5], other(5)],
     11,
-    ['interpolate', ['linear'], ['get', 'weight'], 0, 1.6 + extra, 4, 6 + extra],
+    ['case', hasLanes, lanes[11], other(11)],
+    15,
+    ['case', hasLanes, lanes[15], other(11)],
   ]
 }
 
-const WIDTH = widthExpr()
+function laneStops(stops: LaneStops): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], 5, stops[5], 11, stops[11], 15, stops[15]]
+}
+
+const LINK_HAS_LANES: ExpressionSpecification = ['!=', ['get', 'kind'], 'topology']
+const ACTIVE_HAS_LANES: ExpressionSpecification = ['==', ['get', 'lanes'], true]
+const LANE_WIDTH = laneStops(LANE_WIDTH_AT)
+const LANE_OFFSET = laneStops(LANE_OFFSET_AT)
+/**
+ * Chevrons are drawn 10px tall and scaled with the lane. `icon-offset` is in
+ * icon units, so the lane offset is divided by the icon size at each stop.
+ */
+const CHEVRON_SIZE_AT = { 10: 0.45, 15: 0.8 } as const
+const CHEVRON_SIZE: ExpressionSpecification = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  10,
+  CHEVRON_SIZE_AT[10],
+  15,
+  CHEVRON_SIZE_AT[15],
+]
+// Lane offset at zoom 10, interpolated between the 5 and 11 stops.
+const LANE_OFFSET_Z10 = LANE_OFFSET_AT[5] + ((LANE_OFFSET_AT[11] - LANE_OFFSET_AT[5]) * 5) / 6
+const CHEVRON_OFFSET: ExpressionSpecification = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  10,
+  ['literal', [0, LANE_OFFSET_Z10 / CHEVRON_SIZE_AT[10]]],
+  15,
+  ['literal', [0, LANE_OFFSET_AT[15] / CHEVRON_SIZE_AT[15]]],
+]
+const EMPHASIZED: ExpressionSpecification = ['==', ['get', 'emphasized'], true]
+
+/** A right-pointing chevron in white, used as an SDF icon tinted per theme. */
+function chevronImage(): ImageData {
+  const px = 20 // 10 CSS px at pixelRatio 2
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = px
+  const ctx = canvas.getContext('2d')!
+  ctx.strokeStyle = '#fff'
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  ctx.moveTo(6, 3)
+  ctx.lineTo(14, 10)
+  ctx.lineTo(6, 17)
+  ctx.stroke()
+  return ctx.getImageData(0, 0, px, px)
+}
 
 /** Clicking a 2px line demands pixel precision nobody has; query a padded box. */
 const CLICK_TOLERANCE = 6
@@ -111,6 +212,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [LINKS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [NODES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
     },
     layers: [
       {
@@ -149,6 +251,20 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'line-width': widthExpr(3),
       },
     },
+    // The selection is a halo under the lines, so the selected link keeps its
+    // own colours (and both lanes in the asymmetry view).
+    {
+      id: LAYER_SELECTED,
+      type: 'line' as const,
+      source: LINKS_SOURCE,
+      filter: ['==', ['get', 'linkId'], '__none__'] as ExpressionSpecification,
+      layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
+      paint: {
+        'line-color': dark ? '#ffffff' : '#0b0b0b',
+        'line-width': widthExpr(2.5),
+        'line-opacity': 0.9,
+      },
+    },
     // Topology links: the pair demonstrably hear each other, but no signal
     // measurement exists for them. Dashed and in ink, never a ramp step, so the
     // map cannot imply a quality it does not have.
@@ -165,7 +281,8 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'line-dasharray': [2, 2] as unknown as ExpressionSpecification,
       },
     },
-    // Measured and trace links: a real SNR, on the validated ordinal ramp.
+    // Measured and trace links: a real SNR, on the validated ordinal ramp,
+    // taken from the weaker direction (snrQuality).
     {
       id: LAYER_MEASURED,
       type: 'line' as const,
@@ -173,9 +290,62 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       filter: MEASURED_FILTER,
       layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
       paint: {
-        'line-color': snrStepExpression(thresholds, dark) as unknown as ExpressionSpecification,
+        'line-color': snrStepExpression(thresholds, dark, 'snrQuality') as unknown as ExpressionSpecification,
         'line-width': WIDTH,
         'line-opacity': 0.95,
+      },
+    },
+    // Asymmetry view: one lane per direction, coloured by that direction's
+    // median. Hidden in the quality view (see applyView). A direction never
+    // measured is a thin dashed ink lane rather than an invented colour.
+    {
+      id: LAYER_LANES_MISSING,
+      type: 'line' as const,
+      source: LANES_SOURCE,
+      filter: ['==', ['get', 'measured'], false] as ExpressionSpecification,
+      layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const, visibility: 'none' as const },
+      paint: {
+        'line-color': noData,
+        'line-width': 1,
+        'line-offset': LANE_OFFSET,
+        'line-dasharray': [2, 2] as unknown as ExpressionSpecification,
+        'line-opacity': ['case', EMPHASIZED, 0.9, 0.4] as ExpressionSpecification,
+      },
+    },
+    {
+      id: LAYER_LANES,
+      type: 'line' as const,
+      source: LANES_SOURCE,
+      filter: ['==', ['get', 'measured'], true] as ExpressionSpecification,
+      layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const, visibility: 'none' as const },
+      paint: {
+        'line-color': snrStepExpression(thresholds, dark, 'snr') as unknown as ExpressionSpecification,
+        'line-width': LANE_WIDTH,
+        'line-offset': LANE_OFFSET,
+        // Symmetric links recede so the asymmetric ones stand out.
+        'line-opacity': ['case', EMPHASIZED, 1, 0.4] as ExpressionSpecification,
+      },
+    },
+    // Chevrons in surface colour, cut into each lane, pointing its way.
+    {
+      id: LAYER_LANE_ARROWS,
+      type: 'symbol' as const,
+      source: LANES_SOURCE,
+      minzoom: 10,
+      layout: {
+        visibility: 'none' as const,
+        'symbol-placement': 'line' as const,
+        'symbol-spacing': 90,
+        'icon-image': CHEVRON,
+        'icon-size': CHEVRON_SIZE,
+        'icon-offset': CHEVRON_OFFSET,
+        'icon-rotation-alignment': 'map' as const,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: {
+        'icon-color': ['case', ['==', ['get', 'measured'], true], surface, noData] as ExpressionSpecification,
+        'icon-opacity': ['case', EMPHASIZED, 1, 0.5] as ExpressionSpecification,
       },
     },
     // Recently heard links, animated in the direction of their newest packet.
@@ -195,18 +365,6 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         ] as unknown as ExpressionSpecification,
         'line-width': widthExpr(1),
         'line-dasharray': DASH_FRAMES[0] as unknown as ExpressionSpecification,
-      },
-    },
-    {
-      id: LAYER_SELECTED,
-      type: 'line' as const,
-      source: LINKS_SOURCE,
-      filter: ['==', ['get', 'linkId'], '__none__'] as ExpressionSpecification,
-      layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
-      paint: {
-        'line-color': dark ? '#ffffff' : '#0b0b0b',
-        'line-width': widthExpr(2.5),
-        'line-opacity': 0.9,
       },
     },
     {
@@ -254,6 +412,10 @@ export interface UseMapOptions {
   container: Ref<HTMLElement | null>
   dark: Ref<boolean>
   thresholds: Ref<number[]>
+  mode: Ref<ViewMode>
+  /** Asymmetry view only: hide every link that is not asymmetric. */
+  asymOnly: Ref<boolean>
+  asymThreshold: Ref<number>
   center?: [number, number]
   zoom?: number
   onMoveEnd: (bbox: BBox) => void
@@ -271,6 +433,8 @@ export function useMapLibre(opts: UseMapOptions) {
   let raf = 0
   let dashFrame = 0
   let lastDashAt = 0
+  /** Links asymmetric beyond the threshold, for the "asymmetric only" filter. */
+  let emphasizedIds: string[] = []
 
   function bboxOf(m: MlMap): BBox {
     const b = m.getBounds()
@@ -303,8 +467,10 @@ export function useMapLibre(opts: UseMapOptions) {
 
     map.on('load', () => {
       if (!map) return
+      map.addImage(CHEVRON, chevronImage(), { pixelRatio: 2, sdf: true })
       addDataLayers()
       ready = true
+      applyView()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       opts.onMoveEnd(bboxOf(map))
@@ -320,7 +486,9 @@ export function useMapLibre(opts: UseMapOptions) {
         [point.x - CLICK_TOLERANCE, point.y - CLICK_TOLERANCE],
         [point.x + CLICK_TOLERANCE, point.y + CLICK_TOLERANCE],
       ]
-      return map.queryRenderedFeatures(box, { layers: [LAYER_ACTIVE, LAYER_MEASURED, LAYER_TOPOLOGY] })
+      return map.queryRenderedFeatures(box, {
+        layers: [LAYER_ACTIVE, LAYER_LANES, LAYER_LANES_MISSING, LAYER_MEASURED, LAYER_TOPOLOGY],
+      })
     }
 
     map.on('click', (e) => {
@@ -351,6 +519,14 @@ export function useMapLibre(opts: UseMapOptions) {
       // GeoJSON: there is no transform step between fetch and render.
       ;(src as maplibregl.GeoJSONSource).setData(fc as never)
     }
+    const threshold = opts.asymThreshold.value
+    const lanes = map.getSource(LANES_SOURCE)
+    if (lanes && 'setData' in lanes) {
+      ;(lanes as maplibregl.GeoJSONSource).setData(buildLanes(fc, threshold) as never)
+    }
+    emphasizedIds = fc.features
+      .filter((f) => isAsymmetric(f.properties, threshold))
+      .map((f) => f.properties.linkId)
     trackActive(fc)
   }
 
@@ -368,13 +544,21 @@ export function useMapLibre(opts: UseMapOptions) {
       const remaining = ACTIVE_MS - p.ageSec * 1000
       if (remaining <= 0 || f.geometry.type !== 'LineString') continue
       const coords = f.geometry.coordinates
-      const snr = p.lastSnr ?? p.snrMedian
+      const snr =
+        p.lastSnr ?? (p.lastForward ? p.snrMedianAB : p.snrMedianBA) ?? p.snrQuality ?? p.snrMedian
       active.set(p.linkId, {
         expiresAt: now + remaining,
         feature: {
           type: 'Feature',
           geometry: { type: 'LineString', coordinates: p.lastForward ? coords : [...coords].reverse() },
-          properties: { linkId: p.linkId, weight: p.weight, ...(snr !== undefined && { snrActive: snr }) },
+          properties: {
+            linkId: p.linkId,
+            laneId: laneId(p.linkId, p.lastForward),
+            lanes: p.kind !== 'topology',
+            emphasized: isAsymmetric(p, opts.asymThreshold.value),
+            weight: p.weight,
+            ...(snr !== undefined && { snrActive: snr }),
+          },
         },
       })
     }
@@ -393,10 +577,69 @@ export function useMapLibre(opts: UseMapOptions) {
         features: [...active.values()].map((a) => a.feature),
       } as never)
     }
-    const hide: ExpressionSpecification = ['!', ['in', ['get', 'linkId'], ['literal', [...active.keys()]]]]
-    map.setFilter(LAYER_TOPOLOGY, ['all', TOPOLOGY_FILTER, hide])
-    map.setFilter(LAYER_MEASURED, ['all', MEASURED_FILTER, hide])
+    applyFilters()
     if (active.size > 0 && raf === 0) raf = requestAnimationFrame(tick)
+  }
+
+  /**
+   * Switches between the quality view (one line per link, coloured by the
+   * weaker direction) and the asymmetry view (one lane per direction).
+   */
+  function applyView() {
+    if (!map || !ready) return
+    const m = map
+    const asym = opts.mode.value === 'asymmetry'
+    const only = asym && opts.asymOnly.value
+    const show = (id: string, on: boolean) => m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
+    show(LAYER_MEASURED, !asym)
+    show(LAYER_LANES, asym)
+    show(LAYER_LANES_MISSING, asym)
+    show(LAYER_LANE_ARROWS, asym)
+    show(LAYER_TOPOLOGY, !only)
+    m.setPaintProperty(
+      LAYER_CASING,
+      'line-width',
+      asym ? laneAware(LINK_HAS_LANES, LANE_CASING_AT, 3) : widthExpr(3),
+    )
+    m.setPaintProperty(
+      LAYER_SELECTED,
+      'line-width',
+      asym ? laneAware(LINK_HAS_LANES, LANE_SELECTED_AT, 2.5) : widthExpr(2.5),
+    )
+    m.setPaintProperty(
+      LAYER_ACTIVE,
+      'line-width',
+      asym ? laneAware(ACTIVE_HAS_LANES, LANE_WIDTH_AT, 1) : widthExpr(1),
+    )
+    m.setPaintProperty(
+      LAYER_ACTIVE,
+      'line-offset',
+      asym ? laneAware(ACTIVE_HAS_LANES, LANE_OFFSET_AT, 0, 0) : 0,
+    )
+    applyFilters()
+  }
+
+  /**
+   * One place composes every filter: link kind, the lines hidden under an
+   * animation, and the "asymmetric only" restriction.
+   */
+  function applyFilters() {
+    if (!map || !ready) return
+    const only = opts.mode.value === 'asymmetry' && opts.asymOnly.value
+    const notIn = (prop: string, ids: string[]): ExpressionSpecification => [
+      '!',
+      ['in', ['get', prop], ['literal', ids]],
+    ]
+    const activeLinks = [...active.keys()]
+    const activeLanes = [...active.values()].map((a) => a.feature.properties.laneId)
+    const emph: ExpressionSpecification[] = only ? [EMPHASIZED] : []
+    map.setFilter(LAYER_TOPOLOGY, ['all', TOPOLOGY_FILTER, notIn('linkId', activeLinks)])
+    map.setFilter(LAYER_MEASURED, ['all', MEASURED_FILTER, notIn('linkId', activeLinks)])
+    map.setFilter(LAYER_LANES, ['all', ['==', ['get', 'measured'], true], notIn('laneId', activeLanes), ...emph])
+    map.setFilter(LAYER_LANES_MISSING, ['all', ['==', ['get', 'measured'], false], ...emph])
+    map.setFilter(LAYER_LANE_ARROWS, only ? EMPHASIZED : null)
+    map.setFilter(LAYER_ACTIVE, only ? EMPHASIZED : null)
+    map.setFilter(LAYER_CASING, only ? ['in', ['get', 'linkId'], ['literal', emphasizedIds]] : null)
   }
 
   function tick(t: number) {
@@ -442,6 +685,9 @@ export function useMapLibre(opts: UseMapOptions) {
       LAYER_NODES,
       LAYER_SELECTED,
       LAYER_ACTIVE,
+      LAYER_LANE_ARROWS,
+      LAYER_LANES,
+      LAYER_LANES_MISSING,
       LAYER_MEASURED,
       LAYER_TOPOLOGY,
       LAYER_CASING,
@@ -452,6 +698,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setPaintProperty('basemap', 'raster-opacity', dark ? 0.45 : 0.75)
     map.setPaintProperty('basemap', 'raster-brightness-max', dark ? 0.55 : 1)
     addDataLayers()
+    applyView()
     syncActive()
   }
 
@@ -472,5 +719,5 @@ export function useMapLibre(opts: UseMapOptions) {
     ready = false
   })
 
-  return { mount, setLinks, setNodes, highlight, retheme, fitTo }
+  return { mount, setLinks, setNodes, highlight, retheme, fitTo, applyView }
 }

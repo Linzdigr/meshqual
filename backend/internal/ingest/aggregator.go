@@ -55,10 +55,14 @@ type LinkState struct {
 	LastForward bool
 	LastSNR     *float64
 
-	snr    []float64 // bounded ring of recent SNR values
+	snr    []float64 // bounded ring of recent SNR values, both directions
 	snrPos int
-	rssi   []float64
-	rssiP  int
+	// The same values split by direction of transmission. SNR is measured by
+	// the receiver, so A->B is what B measured hearing A.
+	snrAB, snrBA       []float64
+	snrABPos, snrBAPos int
+	rssi               []float64
+	rssiP              int
 
 	frames   []Frame // bounded ring, newest last
 	framePos int
@@ -73,12 +77,15 @@ type Aggregator struct {
 
 	maxFrames int
 	maxSNR    int
-	window    time.Duration
-	dirty     map[LinkID]struct{}
-	hopsTotal uint64
-	hopsUnres uint64
-	hopsAmbig uint64
-	samplesIn uint64
+	// MinDirectionSamples is how many SNR values a direction needs before it
+	// counts towards the link quality. Below that, one fade would decide it.
+	MinDirectionSamples int
+	window              time.Duration
+	dirty               map[LinkID]struct{}
+	hopsTotal           uint64
+	hopsUnres           uint64
+	hopsAmbig           uint64
+	samplesIn           uint64
 
 	implausible uint64
 }
@@ -96,11 +103,12 @@ func NewAggregator(maxFrames, maxSNR int, window time.Duration) *Aggregator {
 		window = 24 * time.Hour
 	}
 	return &Aggregator{
-		links:     make(map[LinkID]*LinkState),
-		maxFrames: maxFrames,
-		maxSNR:    maxSNR,
-		window:    window,
-		dirty:     make(map[LinkID]struct{}),
+		links:               make(map[LinkID]*LinkState),
+		maxFrames:           maxFrames,
+		maxSNR:              maxSNR,
+		window:              window,
+		MinDirectionSamples: 3,
+		dirty:               make(map[LinkID]struct{}),
 	}
 }
 
@@ -142,6 +150,11 @@ func (a *Aggregator) Add(d *Decoded) {
 		}
 		if s.SNR != nil {
 			st.snr, st.snrPos = pushRing(st.snr, st.snrPos, *s.SNR, a.maxSNR)
+			if s.Forward {
+				st.snrAB, st.snrABPos = pushRing(st.snrAB, st.snrABPos, *s.SNR, a.maxSNR)
+			} else {
+				st.snrBA, st.snrBAPos = pushRing(st.snrBA, st.snrBAPos, *s.SNR, a.maxSNR)
+			}
 		}
 		if s.RSSI != nil {
 			st.rssi, st.rssiP = pushRing(st.rssi, st.rssiP, float64(*s.RSSI), a.maxSNR)
@@ -164,7 +177,7 @@ func (a *Aggregator) Snapshot() []LinkView {
 	defer a.mu.RUnlock()
 	out := make([]LinkView, 0, len(a.links))
 	for _, st := range a.links {
-		out = append(out, st.view())
+		out = append(out, st.view(a.MinDirectionSamples))
 	}
 	return out
 }
@@ -177,7 +190,7 @@ func (a *Aggregator) Get(id LinkID) (LinkView, bool) {
 	if !ok {
 		return LinkView{}, false
 	}
-	return st.view(), true
+	return st.view(a.MinDirectionSamples), true
 }
 
 // Frames returns the most recent retained frames for a link, newest first.
@@ -275,14 +288,26 @@ type LinkView struct {
 	FirstSeen time.Time `json:"firstSeen"`
 	LastSeen  time.Time `json:"lastSeen"`
 	// LastForward and LastSNR describe the newest sample only.
-	LastForward bool           `json:"lastForward"`
-	LastSNR     *float64       `json:"lastSnr"`
-	SNR         *SNRStats      `json:"snr"`
-	RSSIMean    *float64       `json:"rssiMean"`
-	Observers   map[string]int `json:"observers"`
+	LastForward bool      `json:"lastForward"`
+	LastSNR     *float64  `json:"lastSnr"`
+	SNR         *SNRStats `json:"snr"`
+	// Per direction of transmission: AB is what B measured hearing A.
+	SNRAB *SNRStats `json:"snrAB"`
+	SNRBA *SNRStats `json:"snrBA"`
+	// Quality is the lower of the two direction medians among the directions
+	// with enough samples (see SNRBasis). Nil when the link has no SNR at all.
+	Quality *float64 `json:"snrQuality"`
+	// SNRBasis says what Quality rests on: "both" directions, "oneWay" (only
+	// one direction has enough samples) or "few" (neither does, so Quality is
+	// the median of everything).
+	SNRBasis string `json:"snrBasis,omitempty"`
+	// Delta is median A->B minus median B->A, set only when SNRBasis is "both".
+	Delta     *float64       `json:"snrDelta"`
+	RSSIMean  *float64       `json:"rssiMean"`
+	Observers map[string]int `json:"observers"`
 }
 
-func (st *LinkState) view() LinkView {
+func (st *LinkState) view(minDir int) LinkView {
 	v := LinkView{
 		ID: st.ID, AKey: st.ID.A, BKey: st.ID.B, Kind: st.Kind.String(),
 		Samples: st.Samples, Forward: st.Forward, Backward: st.Backward,
@@ -296,11 +321,42 @@ func (st *LinkState) view() LinkView {
 	if s := stats(st.snr); s != nil {
 		v.SNR = s
 	}
+	v.SNRAB, v.SNRBA = stats(st.snrAB), stats(st.snrBA)
+	v.Quality, v.SNRBasis, v.Delta = quality(v.SNR, v.SNRAB, v.SNRBA, minDir)
 	if len(st.rssi) > 0 {
 		m := mean(st.rssi)
 		v.RSSIMean = &m
 	}
 	return v
+}
+
+// quality picks the link's SNR: the weaker direction, since a link is only as
+// usable as its worse half (replies and acks travel the other way). Medians,
+// not raw minima, so a single fade does not condemn a link for good.
+func quality(all, ab, ba *SNRStats, minDir int) (q *float64, basis string, delta *float64) {
+	if all == nil {
+		return nil, "", nil
+	}
+	if minDir < 1 {
+		minDir = 1
+	}
+	okAB := ab != nil && ab.Count >= minDir
+	okBA := ba != nil && ba.Count >= minDir
+	switch {
+	case okAB && okBA:
+		m := math.Min(ab.Median, ba.Median)
+		d := round2(ab.Median - ba.Median)
+		return &m, "both", &d
+	case okAB:
+		m := ab.Median
+		return &m, "oneWay", nil
+	case okBA:
+		m := ba.Median
+		return &m, "oneWay", nil
+	default:
+		m := all.Median
+		return &m, "few", nil
+	}
 }
 
 func stats(vals []float64) *SNRStats {

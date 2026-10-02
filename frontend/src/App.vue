@@ -100,12 +100,26 @@ watch(
         :selected-link-id="store.selectedLinkId"
         :thresholds="store.snrThresholds"
         :dark="dark"
+        :mode="store.viewMode"
+        :asym-only="store.asymOnly"
+        :asym-threshold="store.asymmetryThresholdDb"
         @moveend="onMoveEnd"
         @select="(id) => store.selectLink(id)"
       />
 
       <div class="overlay left">
-        <SnrLegend :thresholds="store.snrThresholds" :kinds="store.kinds" :counts="counts" @toggle="onToggleKind" />
+        <SnrLegend
+          :thresholds="store.snrThresholds"
+          :kinds="store.kinds"
+          :counts="counts"
+          :mode="store.viewMode"
+          :asym-only="store.asymOnly"
+          :asym-count="store.asymmetricCount"
+          :asym-threshold="store.asymmetryThresholdDb"
+          @toggle="onToggleKind"
+          @set-mode="(m) => (store.viewMode = m)"
+          @toggle-asym-only="store.asymOnly = !store.asymOnly"
+        />
       </div>
 
       <div v-if="store.selectedLink" class="overlay right">
@@ -114,6 +128,7 @@ watch(
           :frames="store.frames"
           :history="store.history"
           :thresholds="store.snrThresholds"
+          :asym-threshold="store.asymmetryThresholdDb"
           :live="stream.connected.value"
           @close="store.selectLink(null)"
         />

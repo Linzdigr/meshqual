@@ -2,14 +2,24 @@
 import { computed } from 'vue'
 import { snrBuckets } from '@/styles/scale'
 import type { LinkKind } from '@/api/types'
+import type { ViewMode } from '@/map/lanes'
 
 const props = defineProps<{
   thresholds: number[]
   kinds: LinkKind[]
   counts: Record<LinkKind, number>
+  mode: ViewMode
+  asymOnly: boolean
+  asymCount: number
+  asymThreshold: number
 }>()
 
-const emit = defineEmits<{ toggle: [LinkKind] }>()
+const emit = defineEmits<{ toggle: [LinkKind]; setMode: [ViewMode]; toggleAsymOnly: [] }>()
+
+const modes: { id: ViewMode; label: string; hint: string }[] = [
+  { id: 'quality', label: 'Qualité', hint: 'Une ligne par lien, couleur du sens le plus faible' },
+  { id: 'asymmetry', label: 'Asymétrie', hint: 'Une voie par sens, chacune avec son propre SNR' },
+]
 
 const ramp = ['var(--snr-1)', 'var(--snr-2)', 'var(--snr-3)', 'var(--snr-4)']
 
@@ -34,8 +44,23 @@ function active(kind: LinkKind): boolean {
 
 <template>
   <div class="legend">
+    <div class="modes" role="radiogroup" aria-label="Représentation des liens">
+      <button
+        v-for="m in modes"
+        :key="m.id"
+        type="button"
+        role="radio"
+        :aria-checked="mode === m.id"
+        :class="{ on: mode === m.id }"
+        :title="m.hint"
+        @click="emit('setMode', m.id)"
+      >
+        {{ m.label }}
+      </button>
+    </div>
+
     <div class="block">
-      <h3>SNR médian</h3>
+      <h3>{{ mode === 'asymmetry' ? 'SNR médian par sens' : 'SNR — sens le plus faible' }}</h3>
       <!-- The ramp is ordinal, so every step carries its dB range: the colour is
            an ordering, not a readable value. -->
       <ul class="ramp">
@@ -45,6 +70,29 @@ function active(kind: LinkKind): boolean {
           <span class="note">{{ b.note }}</span>
         </li>
       </ul>
+    </div>
+
+    <div v-if="mode === 'asymmetry'" class="block">
+      <h3>Asymétrie</h3>
+      <ul class="lanes">
+        <li>
+          <span class="lane pair" aria-hidden="true" />
+          <span>une voie par sens, à droite du sens de circulation</span>
+        </li>
+        <li>
+          <span class="lane missing" aria-hidden="true" />
+          <span>sens non mesuré</span>
+        </li>
+      </ul>
+      <label class="only">
+        <input type="checkbox" :checked="asymOnly" @change="emit('toggleAsymOnly')" />
+        <span>Asymétriques seulement</span>
+        <span class="mono count">{{ asymCount }}</span>
+      </label>
+      <p class="caveat">
+        Liens dont les deux sens sont mesurés et diffèrent d'au moins {{ asymThreshold }} dB. Les
+        autres sont atténués.
+      </p>
     </div>
 
     <div class="block">
@@ -179,6 +227,62 @@ ul {
 .count {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 5px;
+}
+
+.modes button {
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modes button.on {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.lanes li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.lane.pair {
+  height: 7px;
+  border-top: 3px solid var(--snr-4);
+  border-bottom: 3px solid var(--snr-1);
+}
+
+.lane.missing {
+  border-top: 1px dashed var(--no-data);
+}
+
+.only {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 .caveat {
