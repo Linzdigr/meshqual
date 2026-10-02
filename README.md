@@ -61,7 +61,7 @@ with the defaults.
 Each entry in `sources` is one broker subscription:
 
 ```json
-{ "id": "local", "brokerUrl": "mqtt://mosquitto:1883", "topics": ["meshcore/+/+/packets"] }
+{ "id": "local", "brokerUrl": "mqtt://mosquitto:1884", "topics": ["meshcore/+/+/packets"] }
 ```
 
 Supported schemes: `mqtt://`, `mqtts://`, `ws://`, `wss://`. Topics follow the

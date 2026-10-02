@@ -13,7 +13,7 @@
     },
     {
       "id": "local",
-      "brokerUrl": "mqtt://mosquitto:1883",
+      "brokerUrl": "mqtt://mosquitto:1884",
       "topics": ["meshcore/+/+/packets"],
       "queueSize": 4096
     }
