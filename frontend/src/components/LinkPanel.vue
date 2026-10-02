@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Frame, HistoryBucket, LinkProperties } from '@/api/types'
 import FrameTable from './FrameTable.vue'
 import SnrSparkline from './SnrSparkline.vue'
@@ -13,6 +13,67 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/**
+ * Panel width, dragged from the left edge (the panel is anchored to the right).
+ * Remembered per browser; storage can be unavailable, so every access is guarded.
+ */
+const WIDTH_KEY = 'meshqual.panelWidth'
+const DEFAULT_WIDTH = 340
+const MIN_WIDTH = 300
+
+function maxWidth(): number {
+  return Math.max(MIN_WIDTH, Math.min(960, window.innerWidth - 96))
+}
+
+function clampWidth(w: number): number {
+  return Math.round(Math.min(maxWidth(), Math.max(MIN_WIDTH, w)))
+}
+
+function loadWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(WIDTH_KEY))
+    if (v > 0) return clampWidth(v)
+  } catch {}
+  return DEFAULT_WIDTH
+}
+
+const width = ref(loadWidth())
+
+function saveWidth() {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(width.value))
+  } catch {}
+}
+
+function startResize(e: PointerEvent) {
+  const handle = e.currentTarget as HTMLElement
+  const startX = e.clientX
+  const startWidth = width.value
+  handle.setPointerCapture(e.pointerId)
+  const move = (ev: PointerEvent) => {
+    width.value = clampWidth(startWidth + startX - ev.clientX)
+  }
+  const end = () => {
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', end)
+    handle.removeEventListener('pointercancel', end)
+    saveWidth()
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+}
+
+function nudgeWidth(delta: number) {
+  width.value = clampWidth(width.value + delta)
+  saveWidth()
+}
+
+function resetWidth() {
+  width.value = clampWidth(DEFAULT_WIDTH)
+  saveWidth()
+}
 
 const kindLabel: Record<string, string> = {
   measured: 'Mesuré',
@@ -55,76 +116,137 @@ const tiles = computed(() => {
 </script>
 
 <template>
-  <aside v-if="link" class="panel">
-    <header>
-      <div class="titles">
-        <h2>
-          <span class="node">{{ link.aName || link.aKey.slice(0, 8) }}</span>
-          <span class="arrow" aria-hidden="true">↔</span>
-          <span class="node">{{ link.bName || link.bKey.slice(0, 8) }}</span>
-        </h2>
-        <p class="sub">
-          <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
-          <span class="mono">vu il y a {{ link.ageSec }} s</span>
-          <span v-if="live" class="live">
-            <i aria-hidden="true" />flux actif
+  <aside v-if="link" class="panel" :style="{ '--panel-width': `${width}px` }">
+    <div
+      class="resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Redimensionner le panneau"
+      :aria-valuenow="width"
+      tabindex="0"
+      title="Glisser pour redimensionner, double-clic pour revenir à la largeur par défaut"
+      @pointerdown.prevent="startResize"
+      @dblclick="resetWidth"
+      @keydown.left.prevent="nudgeWidth(24)"
+      @keydown.right.prevent="nudgeWidth(-24)"
+    />
+    <div class="body">
+      <header>
+        <div class="titles">
+          <h2>
+            <span class="node">{{ link.aName || link.aKey.slice(0, 8) }}</span>
+            <span class="arrow" aria-hidden="true">↔</span>
+            <span class="node">{{ link.bName || link.bKey.slice(0, 8) }}</span>
+          </h2>
+          <p class="sub">
+            <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
+            <span class="mono">vu il y a {{ link.ageSec }} s</span>
+            <span v-if="live" class="live">
+              <i aria-hidden="true" />flux actif
+            </span>
+          </p>
+        </div>
+        <button class="close" type="button" aria-label="Fermer le panneau" @click="emit('close')">
+          ✕
+        </button>
+      </header>
+
+      <div class="tiles">
+        <div v-for="t in tiles" :key="t.label" class="tile">
+          <span class="t-label">{{ t.label }}</span>
+          <span class="t-value mono">
+            {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
           </span>
-        </p>
+          <span v-if="t.hint" class="t-hint">{{ t.hint }}</span>
+        </div>
       </div>
-      <button class="close" type="button" aria-label="Fermer le panneau" @click="emit('close')">
-        ✕
-      </button>
-    </header>
 
-    <div class="tiles">
-      <div v-for="t in tiles" :key="t.label" class="tile">
-        <span class="t-label">{{ t.label }}</span>
-        <span class="t-value mono">
-          {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
-        </span>
-        <span v-if="t.hint" class="t-hint">{{ t.hint }}</span>
-      </div>
+      <p v-if="link.kind === 'topology'" class="warn">
+        Ce lien vient de sauts adjacents dans un chemin observé. Il prouve que les deux relais
+        s'entendent, mais aucune valeur de SNR n'existe pour ce saut : seuls le dernier saut vers un
+        observateur et les paquets TRACE sont mesurés.
+      </p>
+
+      <section>
+        <SnrSparkline :buckets="history" />
+      </section>
+
+      <section>
+        <h3>{{ frames.length }} dernières trames</h3>
+        <FrameTable
+          :frames="frames"
+          :thresholds="thresholds"
+          :a-name="link.aName || link.aKey.slice(0, 6)"
+          :b-name="link.bName || link.bKey.slice(0, 6)"
+        />
+      </section>
+
+      <footer class="keys mono">
+        <span :title="link.aKey">{{ link.aKey.slice(0, 16) }}…</span>
+        <span :title="link.bKey">{{ link.bKey.slice(0, 16) }}…</span>
+      </footer>
     </div>
-
-    <p v-if="link.kind === 'topology'" class="warn">
-      Ce lien vient de sauts adjacents dans un chemin observé. Il prouve que les deux relais
-      s'entendent, mais aucune valeur de SNR n'existe pour ce saut : seuls le dernier saut vers un
-      observateur et les paquets TRACE sont mesurés.
-    </p>
-
-    <section>
-      <SnrSparkline :buckets="history" />
-    </section>
-
-    <section>
-      <h3>{{ frames.length }} dernières trames</h3>
-      <FrameTable
-        :frames="frames"
-        :thresholds="thresholds"
-        :a-name="link.aName || link.aKey.slice(0, 6)"
-        :b-name="link.bName || link.bKey.slice(0, 6)"
-      />
-    </section>
-
-    <footer class="keys mono">
-      <span :title="link.aKey">{{ link.aKey.slice(0, 16) }}…</span>
-      <span :title="link.bKey">{{ link.bKey.slice(0, 16) }}…</span>
-    </footer>
   </aside>
 </template>
 
 <style scoped>
 .panel {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: 340px;
+  width: var(--panel-width, 340px);
   max-height: 100%;
-  overflow-y: auto;
-  padding: 14px;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+/* The scroll lives here, not on .panel, so the resize handle stays put. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.resize::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 32px;
+  transform: translateY(-50%);
+  border-radius: 1px;
+  background: var(--border);
+}
+
+.resize:hover::after,
+.resize:focus-visible::after {
+  background: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .panel {
+    width: auto;
+  }
+
+  .resize {
+    display: none;
+  }
 }
 
 header {

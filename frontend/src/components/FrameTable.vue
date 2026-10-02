@@ -52,7 +52,7 @@ function snrColorVar(snr: number | null): string {
       size="small"
       scrollable
       scroll-height="240px"
-      :pt="{ table: { style: 'min-width: 0' } }"
+      :pt="{ table: { style: 'min-width: 0; width: 100%; table-layout: fixed' } }"
     >
       <template #empty>
         <span class="empty">Aucune trame retenue pour ce lien.</span>
@@ -90,7 +90,7 @@ function snrColorVar(snr: number | null): string {
 
       <Column header="Sens">
         <template #body="{ data }">
-          <span class="dir">{{ data.direction }}</span>
+          <span class="dir" :title="data.direction">{{ data.direction }}</span>
           <span class="hop mono">saut {{ data.hopIndex + 1 }}/{{ data.hopCount || 1 }}</span>
         </template>
       </Column>
@@ -158,7 +158,6 @@ function snrColorVar(snr: number | null): string {
 .dir {
   display: block;
   font-size: 11px;
-  max-width: 14ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
