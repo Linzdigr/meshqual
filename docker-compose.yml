@@ -37,7 +37,9 @@ services:
         condition: service_healthy
     environment:
       MESHQUAL_CONFIG: /etc/meshqual/config.json
-      MESHQUAL_DSN: postgres://meshqual:${POSTGRES_PASSWORD}@timescale:5432/meshqual?sslmode=disable
+      # The password goes through PGPASSWORD (read by pgx) so it needs no URL escaping.
+      MESHQUAL_DSN: postgres://meshqual@timescale:5432/meshqual?sslmode=disable
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       MESHQUAL_LOG_LEVEL: ${MESHQUAL_LOG_LEVEL:-info}
       MESHQUAL_CORS_ORIGINS: ${MESHQUAL_CORS_ORIGINS:-}
       MESHQUAL_MQTT_COMCHAN_USERNAME: ${MESHQUAL_MQTT_COMCHAN_USERNAME:-}
