@@ -24,6 +24,15 @@
 
   --no-data: #52514e;
 
+  /* Panel only: the two ends of the selected link, and packet type families.
+     Hues kept clear of the blue SNR ramp. */
+  --node-a: #b45309;
+  --node-b: #be185d;
+  --pt-message: #15803d;
+  --pt-request: #0e7490;
+  --pt-routing: #7c3aed;
+  --pt-data: #78716c;
+
   --status-good: #0ca30c;
   --status-warning: #fab219;
   --status-critical: #d03b3b;
@@ -56,6 +65,13 @@
     --snr-4: #b7d3f6;
 
     --no-data: #c3c2b7;
+
+    --node-a: #fbbf24;
+    --node-b: #f472b6;
+    --pt-message: #4ade80;
+    --pt-request: #22d3ee;
+    --pt-routing: #c4b5fd;
+    --pt-data: #a8a29e;
   }
 }
 
@@ -79,6 +95,13 @@
   --snr-4: #b7d3f6;
 
   --no-data: #c3c2b7;
+
+  --node-a: #fbbf24;
+  --node-b: #f472b6;
+  --pt-message: #4ade80;
+  --pt-request: #22d3ee;
+  --pt-routing: #c4b5fd;
+  --pt-data: #a8a29e;
 }
 
 * {

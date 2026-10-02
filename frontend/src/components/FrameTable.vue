@@ -4,6 +4,7 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import type { Frame } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
+import { payloadFamily, payloadTitle } from '@/styles/payload'
 
 const props = defineProps<{
   frames: Frame[]
@@ -19,7 +20,11 @@ const rows = computed(() =>
     ...f,
     rowKey: `${f.wireHash}-${f.at}-${i}`,
     age: age(f.at),
-    direction: f.forward ? `${props.aName} → ${props.bName}` : `${props.bName} → ${props.aName}`,
+    // Each end keeps its panel colour (node-a / node-b) whichever way it goes.
+    from: f.forward ? { name: props.aName, end: 'a' } : { name: props.bName, end: 'b' },
+    to: f.forward ? { name: props.bName, end: 'b' } : { name: props.aName, end: 'a' },
+    family: payloadFamily(f.payloadType),
+    typeTitle: payloadTitle(f.payloadType),
   })),
 )
 
@@ -84,13 +89,17 @@ function snrColorVar(snr: number | null): string {
 
       <Column header="Type" style="width: 6.5rem">
         <template #body="{ data }">
-          <span class="mono tag">{{ data.payloadType }}</span>
+          <span class="mono tag" :class="data.family" :title="data.typeTitle">{{ data.payloadType }}</span>
         </template>
       </Column>
 
       <Column header="Sens">
         <template #body="{ data }">
-          <span class="dir" :title="data.direction">{{ data.direction }}</span>
+          <span class="dir" :title="`${data.from.name} → ${data.to.name}`">
+            <span :class="`node-${data.from.end}`">{{ data.from.name }}</span>
+            <span class="arrow" aria-hidden="true"> → </span>
+            <span :class="`node-${data.to.end}`">{{ data.to.name }}</span>
+          </span>
           <span class="hop mono">saut {{ data.hopIndex + 1 }}/{{ data.hopCount || 1 }}</span>
         </template>
       </Column>
@@ -148,11 +157,41 @@ function snrColorVar(snr: number | null): string {
 }
 
 .tag {
+  --family: var(--text-secondary);
   font-size: 10px;
   padding: 1px 4px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--family) 55%, transparent);
   border-radius: 3px;
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--family) 12%, transparent);
+  color: var(--family);
+}
+
+.tag.message {
+  --family: var(--pt-message);
+}
+
+.tag.request {
+  --family: var(--pt-request);
+}
+
+.tag.routing {
+  --family: var(--pt-routing);
+}
+
+.tag.data {
+  --family: var(--pt-data);
+}
+
+.node-a {
+  color: var(--node-a);
+}
+
+.node-b {
+  color: var(--node-b);
+}
+
+.dir .arrow {
+  color: var(--text-muted);
 }
 
 .dir {

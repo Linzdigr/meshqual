@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { Frame, HistoryBucket, LinkProperties } from '@/api/types'
 import FrameTable from './FrameTable.vue'
 import SnrSparkline from './SnrSparkline.vue'
@@ -40,6 +40,61 @@ function loadWidth(): number {
 }
 
 const width = ref(loadWidth())
+const panelEl = ref<HTMLElement | null>(null)
+
+let measureCtx: CanvasRenderingContext2D | null = null
+
+/** Width of `text` in the frame table's direction font (11px, see FrameTable .dir). */
+function textWidth(text: string, el: HTMLElement): number {
+  measureCtx ??= document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return 0
+  measureCtx.font = `11px ${getComputedStyle(el).fontFamily}`
+  return measureCtx.measureText(text).width
+}
+
+/**
+ * Widens the panel so the "Sens" column shows both node names in full. It only
+ * grows: a width the user dragged wider is kept. Run on opening a link (from the
+ * header, before any frame is in) and again once frames arrive, since their
+ * scrollbars eat into the column.
+ */
+async function fitToContent() {
+  await nextTick()
+  const el = panelEl.value
+  const l = props.link
+  if (!el || !l) return
+  let overflow = 0
+  const cells = el.querySelectorAll<HTMLElement>('.frames .dir')
+  if (cells.length > 0) {
+    for (const c of cells) overflow = Math.max(overflow, c.scrollWidth - c.clientWidth)
+  } else {
+    const th = el.querySelector<HTMLElement>('.frames thead th:last-child')
+    if (!th) return
+    const pad = getComputedStyle(th)
+    const available = th.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight)
+    const a = l.aName || l.aKey.slice(0, 6)
+    const b = l.bName || l.bKey.slice(0, 6)
+    overflow = textWidth(`${a} → ${b}`, th) - available
+  }
+  if (overflow > 0) width.value = clampWidth(width.value + overflow + 4)
+}
+
+watch(
+  () => props.link?.linkId,
+  (id) => {
+    if (!id) return
+    width.value = loadWidth()
+    void fitToContent()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.frames.length > 0,
+  (has) => {
+    if (has) void fitToContent()
+  },
+)
 
 function saveWidth() {
   try {
@@ -74,6 +129,7 @@ function nudgeWidth(delta: number) {
 function resetWidth() {
   width.value = clampWidth(DEFAULT_WIDTH)
   saveWidth()
+  void fitToContent()
 }
 
 const kindLabel: Record<string, string> = {
@@ -89,6 +145,8 @@ interface Tile {
   hint?: string
   /** Beyond a threshold: flagged with an icon as well as the text, never colour alone. */
   alert?: boolean
+  /** A direction tile: the label is drawn as "from → to" in the node colours. */
+  from?: 'a' | 'b'
 }
 
 const basisHint: Record<string, string> = {
@@ -97,15 +155,27 @@ const basisHint: Record<string, string> = {
   few: 'peu de mesures : médiane globale',
 }
 
-function directionTile(label: string, median?: number, p10?: number, count?: number): Tile {
-  if (median === undefined || !count) return { label, value: '—', hint: 'non mesuré' }
+function directionTile(
+  from: 'a' | 'b',
+  label: string,
+  median?: number,
+  p10?: number,
+  count?: number,
+): Tile {
+  if (median === undefined || !count) return { label, from, value: '—', hint: 'non mesuré' }
   return {
     label,
+    from,
     value: median.toFixed(1),
     unit: 'dB',
     hint: `p10 ${p10?.toFixed(1) ?? '—'} · ${count} mesure${count > 1 ? 's' : ''}`,
   }
 }
+
+const names = computed(() => ({
+  a: props.link ? props.link.aName || props.link.aKey.slice(0, 8) : '',
+  b: props.link ? props.link.bName || props.link.bKey.slice(0, 8) : '',
+}))
 
 const tiles = computed(() => {
   const l = props.link
@@ -116,8 +186,8 @@ const tiles = computed(() => {
 
   // Directions first, side by side: they are what the other tiles summarise.
   if (l.kind !== 'topology') {
-    out.push(directionTile(`${a} → ${b}`, l.snrMedianAB, l.snrP10AB, l.snrCountAB))
-    out.push(directionTile(`${b} → ${a}`, l.snrMedianBA, l.snrP10BA, l.snrCountBA))
+    out.push(directionTile('a', `${a} → ${b}`, l.snrMedianAB, l.snrP10AB, l.snrCountAB))
+    out.push(directionTile('b', `${b} → ${a}`, l.snrMedianBA, l.snrP10BA, l.snrCountBA))
   }
 
   if (l.snrQuality !== undefined) {
@@ -154,7 +224,7 @@ const tiles = computed(() => {
 </script>
 
 <template>
-  <aside v-if="link" class="panel" :style="{ '--panel-width': `${width}px` }">
+  <aside v-if="link" ref="panelEl" class="panel" :style="{ '--panel-width': `${width}px` }">
     <div
       class="resize"
       role="separator"
@@ -168,13 +238,25 @@ const tiles = computed(() => {
       @keydown.left.prevent="nudgeWidth(24)"
       @keydown.right.prevent="nudgeWidth(-24)"
     />
+    <!-- The visible grip. Width only: the panel's height follows the map. -->
+    <div
+      class="grip"
+      aria-hidden="true"
+      title="Glisser pour redimensionner, double-clic pour revenir à la largeur par défaut"
+      @pointerdown.prevent="startResize"
+      @dblclick="resetWidth"
+    >
+      <svg viewBox="0 0 12 12" width="12" height="12">
+        <path d="M1 1 L11 11 M1 5 L7 11 M1 9 L3 11" />
+      </svg>
+    </div>
     <div class="body">
       <header>
         <div class="titles">
           <h2>
-            <span class="node">{{ link.aName || link.aKey.slice(0, 8) }}</span>
+            <span class="node node-a">{{ names.a }}</span>
             <span class="arrow" aria-hidden="true">↔</span>
-            <span class="node">{{ link.bName || link.bKey.slice(0, 8) }}</span>
+            <span class="node node-b">{{ names.b }}</span>
           </h2>
           <p class="sub">
             <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
@@ -191,7 +273,14 @@ const tiles = computed(() => {
 
       <div class="tiles">
         <div v-for="t in tiles" :key="t.label" class="tile" :class="{ alert: t.alert }">
-          <span class="t-label" :title="t.label">{{ t.label }}</span>
+          <span class="t-label" :title="t.label">
+            <template v-if="t.from">
+              <span :class="`node-${t.from}`">{{ t.from === 'a' ? names.a : names.b }}</span>
+              →
+              <span :class="`node-${t.from === 'a' ? 'b' : 'a'}`">{{ t.from === 'a' ? names.b : names.a }}</span>
+            </template>
+            <template v-else>{{ t.label }}</template>
+          </span>
           <span class="t-value mono">
             <i v-if="t.alert" class="pi pi-exclamation-triangle" aria-hidden="true" />
             {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
@@ -221,8 +310,8 @@ const tiles = computed(() => {
       </section>
 
       <footer class="keys mono">
-        <span :title="link.aKey">{{ link.aKey.slice(0, 16) }}…</span>
-        <span :title="link.bKey">{{ link.bKey.slice(0, 16) }}…</span>
+        <span class="node-a" :title="link.aKey">{{ link.aKey.slice(0, 16) }}…</span>
+        <span class="node-b" :title="link.bKey">{{ link.bKey.slice(0, 16) }}…</span>
       </footer>
     </div>
   </aside>
@@ -278,12 +367,52 @@ const tiles = computed(() => {
   background: var(--accent);
 }
 
+.grip {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-top-right-radius: 6px;
+  border-bottom-left-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+/* Mirrored: the grip sits in the bottom-left corner, the panel grows leftwards. */
+.grip svg {
+  transform: scaleX(-1);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.grip:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.node-a {
+  color: var(--node-a);
+}
+
+.node-b {
+  color: var(--node-b);
+}
+
 @media (max-width: 760px) {
   .panel {
     width: auto;
   }
 
-  .resize {
+  .resize,
+  .grip {
     display: none;
   }
 }
