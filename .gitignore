@@ -5,3 +5,4 @@ dist/
 *.ndjson
 capture.ndjson
 e2e-out.png
+deploy/mosquitto/passwd

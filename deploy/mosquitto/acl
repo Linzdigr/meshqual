@@ -1,0 +1,6 @@
+# Observers: any account may publish under meshcore/ and read nothing.
+pattern write meshcore/#
+
+# relayd: the only reader.
+user relayd
+topic read meshcore/#

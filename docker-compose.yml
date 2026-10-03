@@ -21,10 +21,14 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     volumes:
-      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # Writable: `make mqtt-user` adds accounts to deploy/mosquitto/passwd.
+      - ./deploy/mosquitto:/mosquitto/config
       - mosquitto-data:/mosquitto/data
     ports:
       - "1884:1884"
+      # WebSocket listener for a TLS reverse proxy (deploy/nginx-mqtt.conf). Loopback
+      # by default; set MQTT_WS_BIND to a LAN address when the proxy runs elsewhere.
+      - "${MQTT_WS_BIND:-127.0.0.1}:9001:9001"
     restart: unless-stopped
 
   relayd:

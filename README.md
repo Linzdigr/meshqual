@@ -85,6 +85,35 @@ Coverage depends entirely on the brokers you subscribe to:
 - The bundled mosquitto (`local` source) receives whatever your own observers
   publish to it.
 
+### Bundled broker
+
+The bundled mosquitto ([deploy/mosquitto/](deploy/mosquitto/)) requires an
+account for every client. Any account may publish under `meshcore/`; only
+`relayd` may read.
+
+```bash
+make up                        # creates an empty deploy/mosquitto/passwd on first run
+make mqtt-user NAME=relayd     # then set MESHQUAL_MQTT_LOCAL_USERNAME/_PASSWORD in .env
+make mqtt-user NAME=alice      # one account per contributor
+docker compose up -d relayd    # reload relayd with its credentials
+```
+
+It listens on `1884` (plain MQTT, credentials in clear text: keep it on your
+network) and on `127.0.0.1:9001` (WebSocket) for a TLS reverse proxy; see
+[deploy/nginx-mqtt.conf](deploy/nginx-mqtt.conf). Observers then use
+`wss://<host>:443/mqtt` with their account, for example on the observer
+firmware:
+
+```
+set mqtt3.preset custom
+set mqtt3.server wss://mqtt.example.org:443/mqtt
+set mqtt3.username alice
+set mqtt3.password <password>
+```
+
+Accounts are not tied to a node key, so an account holder could publish as any
+observer. This is a test setup, not an open service.
+
 ## How links are built
 
 The `path` field of a MeshCore packet only holds routing hashes, no signal data.
