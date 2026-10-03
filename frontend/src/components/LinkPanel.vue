@@ -178,18 +178,25 @@ const names = computed(() => ({
   b: props.link ? props.link.bName || props.link.bKey.slice(0, 8) : '',
 }))
 
+/**
+ * One tile per direction of transmission, kept in their own titled group: side
+ * by side with the summary tiles they read like an A/B table, which they are not.
+ */
+const directionTiles = computed<Tile[]>(() => {
+  const l = props.link
+  if (!l || l.kind === 'topology') return []
+  const a = l.aName || l.aKey.slice(0, 8)
+  const b = l.bName || l.bKey.slice(0, 8)
+  return [
+    directionTile('a', `${a} → ${b}`, l.snrMedianAB, l.snrP10AB, l.snrCountAB),
+    directionTile('b', `${b} → ${a}`, l.snrMedianBA, l.snrP10BA, l.snrCountBA),
+  ]
+})
+
 const tiles = computed(() => {
   const l = props.link
   if (!l) return []
   const out: Tile[] = []
-  const a = l.aName || l.aKey.slice(0, 8)
-  const b = l.bName || l.bKey.slice(0, 8)
-
-  // Directions first, side by side: they are what the other tiles summarise.
-  if (l.kind !== 'topology') {
-    out.push(directionTile('a', `${a} → ${b}`, l.snrMedianAB, l.snrP10AB, l.snrCountAB))
-    out.push(directionTile('b', `${b} → ${a}`, l.snrMedianBA, l.snrP10BA, l.snrCountBA))
-  }
 
   if (l.snrQuality !== undefined) {
     out.push({
@@ -272,16 +279,31 @@ const tiles = computed(() => {
         </button>
       </header>
 
-      <div class="tiles">
-        <div v-for="t in tiles" :key="t.label" class="tile" :class="{ alert: t.alert }">
-          <span class="t-label" :title="t.label">
-            <template v-if="t.from">
+      <section v-if="directionTiles.length" class="directions">
+        <h3>SNR par sens de transmission</h3>
+        <div class="tiles">
+          <div
+            v-for="t in directionTiles"
+            :key="t.label"
+            class="tile direction"
+            :class="`from-${t.from}`"
+          >
+            <span class="t-label" :title="t.label">
               <span :class="`node-${t.from}`">{{ t.from === 'a' ? names.a : names.b }}</span>
               →
               <span :class="`node-${t.from === 'a' ? 'b' : 'a'}`">{{ t.from === 'a' ? names.b : names.a }}</span>
-            </template>
-            <template v-else>{{ t.label }}</template>
-          </span>
+            </span>
+            <span class="t-value mono">
+              {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
+            </span>
+            <span v-if="t.hint" class="t-hint">{{ t.hint }}</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="tiles">
+        <div v-for="t in tiles" :key="t.label" class="tile" :class="{ alert: t.alert }">
+          <span class="t-label" :title="t.label">{{ t.label }}</span>
           <span class="t-value mono">
             <i v-if="t.alert" class="pi pi-exclamation-triangle" aria-hidden="true" />
             {{ t.value }}<small v-if="t.unit"> {{ t.unit }}</small>
@@ -529,6 +551,19 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Each direction tile is edged in its sender's colour: it reads as one arrow. */
+.tile.direction {
+  border-left: 3px solid var(--border);
+}
+
+.tile.direction.from-a {
+  border-left-color: var(--node-a);
+}
+
+.tile.direction.from-b {
+  border-left-color: var(--node-b);
 }
 
 .tile.alert .pi {

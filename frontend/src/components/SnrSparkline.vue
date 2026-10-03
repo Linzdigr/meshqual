@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { HistoryBucket } from '@/api/types'
 
 const props = withDefaults(
@@ -16,6 +16,9 @@ interface Point {
   y: number
   at: string
   value: number
+  min: number
+  max: number
+  samples: number
 }
 
 const PAD = 3
@@ -47,6 +50,9 @@ const model = computed(() => {
     y: y(b.snrAvg!),
     at: b.bucket,
     value: b.snrAvg!,
+    min: b.snrMin ?? b.snrAvg!,
+    max: b.snrMax ?? b.snrAvg!,
+    samples: b.snrSamples,
   }))
 
   const upper = pts.map((b, i) => `${x(i)},${y(b.snrMax ?? b.snrAvg!)}`)
@@ -63,10 +69,52 @@ const model = computed(() => {
   }
 })
 
+/**
+ * Hover reads the nearest bucket to the pointer anywhere over the chart, not
+ * only on a 5px mark: the guide line and the label then show which hour it is.
+ */
+const hover = ref<number | null>(null)
+const svgEl = ref<SVGSVGElement | null>(null)
+
+const active = computed(() => (hover.value === null ? null : (model.value?.points[hover.value] ?? null)))
+
+function onPointer(e: PointerEvent) {
+  const m = model.value
+  const el = svgEl.value
+  if (!m || !el) return
+  const rect = el.getBoundingClientRect()
+  const x = ((e.clientX - rect.left) / rect.width) * props.width
+  let best = 0
+  for (let i = 1; i < m.points.length; i++) {
+    if (Math.abs(m.points[i]!.x - x) < Math.abs(m.points[best]!.x - x)) best = i
+  }
+  hover.value = best
+}
+
+function onKey(e: KeyboardEvent) {
+  const m = model.value
+  if (!m) return
+  const last = m.points.length - 1
+  if (e.key === 'ArrowLeft') hover.value = Math.max(0, (hover.value ?? last + 1) - 1)
+  else if (e.key === 'ArrowRight') hover.value = Math.min(last, (hover.value ?? -1) + 1)
+  else if (e.key === 'Escape') hover.value = null
+  else return
+  e.preventDefault()
+}
+
+/** The label sits beside the point, flipped to the left in the right half. */
+const labelStyle = computed(() => {
+  const p = active.value
+  if (!p) return {}
+  const left = p.x > props.width / 2
+  return left
+    ? { right: `${props.width - p.x + 8}px`, top: '0px' }
+    : { left: `${p.x + 8}px`, top: '0px' }
+})
+
 function fmt(at: string): string {
   return new Date(at).toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
+    weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -76,29 +124,35 @@ function fmt(at: string): string {
 <template>
   <figure v-if="model" class="spark">
     <figcaption>SNR moyen sur 24 h <span class="mono">({{ model.lo }} à {{ model.hi }} dB)</span></figcaption>
-    <svg
-      :width="width"
-      :height="height"
-      :viewBox="`0 0 ${width} ${height}`"
-      role="img"
-      :aria-label="`SNR moyen sur 24 heures, de ${model.lo} à ${model.hi} dB`"
-    >
-      <polygon :points="model.band" class="band" />
-      <polyline :points="model.line" class="line" />
-      <!-- Hover target per bucket, wider than the mark itself. -->
-      <g>
-        <circle
-          v-for="p in model.points"
-          :key="p.at"
-          :cx="p.x"
-          :cy="p.y"
-          r="5"
-          class="hit"
-        >
-          <title>{{ fmt(p.at) }} — {{ p.value.toFixed(1) }} dB</title>
-        </circle>
-      </g>
-    </svg>
+    <div class="plot" :style="{ width: `${width}px` }">
+      <svg
+        ref="svgEl"
+        :width="width"
+        :height="height"
+        :viewBox="`0 0 ${width} ${height}`"
+        role="img"
+        tabindex="0"
+        :aria-label="`SNR moyen sur 24 heures, de ${model.lo} à ${model.hi} dB. Flèches gauche et droite pour lire chaque heure.`"
+        @pointermove="onPointer"
+        @pointerdown="onPointer"
+        @pointerleave="hover = null"
+        @keydown="onKey"
+        @blur="hover = null"
+      >
+        <polygon :points="model.band" class="band" />
+        <polyline :points="model.line" class="line" />
+        <template v-if="active">
+          <line :x1="active.x" :x2="active.x" :y1="0" :y2="height" class="guide" />
+          <circle :cx="active.x" :cy="active.y" r="4" class="dot" />
+        </template>
+      </svg>
+      <div v-if="active" class="label" :style="labelStyle" aria-live="polite">
+        <span class="when">{{ fmt(active.at) }}</span>
+        <span class="mono value">{{ active.value.toFixed(1) }} dB</span>
+        <span class="mono range">{{ active.min.toFixed(1) }} à {{ active.max.toFixed(1) }} dB</span>
+        <span class="count">{{ active.samples }} mesure{{ active.samples > 1 ? 's' : '' }}</span>
+      </div>
+    </div>
   </figure>
   <p v-else class="empty">
     Pas encore d'historique : il faut une base Timescale configurée et au moins deux intervalles
@@ -117,9 +171,21 @@ figcaption {
   margin-bottom: 2px;
 }
 
+.plot {
+  position: relative;
+}
+
 svg {
   display: block;
   overflow: visible;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .band {
@@ -135,16 +201,52 @@ svg {
   stroke-linecap: round;
 }
 
-.hit {
-  fill: transparent;
-  cursor: crosshair;
+.guide {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
 }
 
-.hit:hover {
+.dot {
   fill: var(--accent);
-  fill-opacity: 0.9;
   stroke: var(--surface-1);
   stroke-width: 2;
+}
+
+.label {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 7px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+}
+
+.when {
+  color: var(--text-secondary);
+}
+
+.value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.range,
+.count {
+  color: var(--text-muted);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .empty {
