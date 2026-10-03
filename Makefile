@@ -1,4 +1,4 @@
-.PHONY: help dev test build fmt lint up down logs capture mqtt-user
+.PHONY: help dev test build fmt lint up down logs capture mqtt-user mqtt-user-rm
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -24,7 +24,8 @@ dev: ## Run the backend with no database and no broker (replay file optional)
 
 up: ## Start the whole stack
 	@# mosquitto refuses to start without its password file, even an empty one.
-	@touch deploy/mosquitto/passwd
+	@# Only create it: once the broker owns it, the host user may not touch it.
+	@test -e deploy/mosquitto/passwd || touch deploy/mosquitto/passwd
 	docker compose up -d --build
 
 down: ## Stop the stack
@@ -39,9 +40,14 @@ capture: ## Record live MQTT traffic to an NDJSON replay file
 
 mqtt-user: ## Add or change a broker account (prompts for the password): make mqtt-user NAME=alice
 	@test -n "$(NAME)" || { echo "usage: make mqtt-user NAME=<username>"; exit 1; }
-	@touch deploy/mosquitto/passwd
+	@test -e deploy/mosquitto/passwd || touch deploy/mosquitto/passwd
 	docker compose exec mosquitto mosquitto_passwd /mosquitto/config/passwd $(NAME)
 	@# The broker runs as the mosquitto user, so the file must stay readable by it.
 	@# chown fails on Docker Desktop bind mounts; the file then keeps its 0644 mode.
 	-docker compose exec mosquitto sh -c 'chown mosquitto:mosquitto /mosquitto/config/passwd && chmod 0600 /mosquitto/config/passwd'
+	docker compose kill -s HUP mosquitto
+
+mqtt-user-rm: ## Remove a broker account: make mqtt-user-rm NAME=alice
+	@test -n "$(NAME)" || { echo "usage: make mqtt-user-rm NAME=<username>"; exit 1; }
+	docker compose exec mosquitto mosquitto_passwd -D /mosquitto/config/passwd $(NAME)
 	docker compose kill -s HUP mosquitto
