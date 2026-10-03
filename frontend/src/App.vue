@@ -20,6 +20,16 @@ const legendEl = ref<HTMLElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const meshMap = ref<InstanceType<typeof MeshMap> | null>(null)
 
+// Narrow screens fold the legend under its mode switch. It folds again when a
+// link or node is opened, so the panel docked at the bottom has the room.
+const legendOpen = ref(false)
+watch(
+  () => store.selectedLinkId ?? store.selectedNodeKey,
+  (sel) => {
+    if (sel) legendOpen.value = false
+  },
+)
+
 /**
  * Map area hidden by the overlays, as fitBounds padding. On a narrow screen the
  * panel is docked at the bottom across the full width, so it pads the bottom.
@@ -31,7 +41,11 @@ function focusPadding() {
   const m = mainEl.value?.getBoundingClientRect()
   if (!m) return pad
   const l = legendEl.value?.getBoundingClientRect()
-  if (l && l.width > 0) pad.left = l.right - m.left + gap
+  if (l && l.width > 0) {
+    // Narrow screens put the legend across the top instead of down the left.
+    if (l.width > m.width * 0.7) pad.top = l.bottom - m.top + gap
+    else pad.left = l.right - m.left + gap
+  }
   const r = panelEl.value?.getBoundingClientRect()
   if (r && r.width > 0) {
     if (r.width > m.width * 0.7) pad.bottom = m.bottom - r.top + gap
@@ -173,6 +187,7 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
+          v-model:open="legendOpen"
           @toggle="onToggleKind"
           @set-mode="(m) => (store.viewMode = m)"
           @toggle-asym-only="store.asymOnly = !store.asymOnly"
@@ -248,8 +263,12 @@ main {
     right: 12px;
   }
 
+  /* The legend stays up top, beside the zoom buttons; the panel docks below. */
   .left {
-    display: none;
+    top: 12px;
+    bottom: auto;
+    right: 56px;
+    max-height: 45%;
   }
 }
 </style>

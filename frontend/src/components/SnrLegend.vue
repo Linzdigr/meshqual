@@ -14,6 +14,8 @@ const props = defineProps<{
   asymThreshold: number
   palette: SnrPalette
   functionalCount: number
+  /** Narrow screens only: whether the details under the mode switch are shown. */
+  open: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +23,7 @@ const emit = defineEmits<{
   setMode: [ViewMode]
   toggleAsymOnly: []
   setPalette: [SnrPalette]
+  'update:open': [boolean]
 }>()
 
 const palettes: { id: SnrPalette; label: string; hint: string }[] = [
@@ -48,106 +51,121 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
 </script>
 
 <template>
-  <div class="legend">
-    <div class="modes" role="radiogroup" aria-label="Représentation des liens">
+  <div class="legend" :class="{ open }">
+    <div class="head">
+      <div class="modes" role="radiogroup" aria-label="Représentation des liens">
+        <button
+          v-for="m in modes"
+          :key="m.id"
+          type="button"
+          role="radio"
+          :aria-checked="mode === m.id"
+          :class="{ on: mode === m.id }"
+          :title="m.hint"
+          @click="emit('setMode', m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
       <button
-        v-for="m in modes"
-        :key="m.id"
+        class="fold"
         type="button"
-        role="radio"
-        :aria-checked="mode === m.id"
-        :class="{ on: mode === m.id }"
-        :title="m.hint"
-        @click="emit('setMode', m.id)"
+        :aria-expanded="open"
+        aria-controls="legend-details"
+        :aria-label="open ? 'Masquer la légende' : 'Afficher la légende'"
+        @click="emit('update:open', !open)"
       >
-        {{ m.label }}
+        <i class="pi" :class="open ? 'pi-chevron-up' : 'pi-list'" aria-hidden="true" />
       </button>
     </div>
 
-    <div v-if="mode === 'functional'" class="block">
-      <h3>Liens fonctionnels</h3>
-      <p class="functional">
-        <span class="line" aria-hidden="true" />
-        <span>SNR ≥ {{ thresholds[1] }} dB dans le sens le plus faible</span>
-        <span class="mono count">{{ functionalCount }}</span>
-      </p>
-      <p class="caveat">
-        Les liens plus faibles et les liens topologiques, qui n'ont pas de mesure, sont masqués.
-      </p>
-    </div>
-
-    <div v-else class="block">
-      <h3>{{ mode === 'asymmetry' ? 'SNR médian par sens' : 'SNR — sens le plus faible' }}</h3>
-      <div class="palettes" role="radiogroup" aria-label="Palette SNR">
-        <button
-          v-for="p in palettes"
-          :key="p.id"
-          type="button"
-          role="radio"
-          :aria-checked="palette === p.id"
-          :class="{ on: palette === p.id }"
-          :title="p.hint"
-          @click="emit('setPalette', p.id)"
-        >
-          {{ p.label }}
-        </button>
+    <!-- On a narrow screen only the mode switch stays up; the rest folds. -->
+    <div id="legend-details" class="details">
+      <div v-if="mode === 'functional'" class="block">
+        <h3>Liens fonctionnels</h3>
+        <p class="functional">
+          <span class="line" aria-hidden="true" />
+          <span>SNR ≥ {{ thresholds[1] }} dB dans le sens le plus faible</span>
+          <span class="mono count">{{ functionalCount }}</span>
+        </p>
+        <p class="caveat">
+          Les liens plus faibles et les liens topologiques, qui n'ont pas de mesure, sont masqués.
+        </p>
       </div>
-      <!-- The ramp is ordinal, so every step carries its dB range: the colour is
-           an ordering, not a readable value. -->
-      <ul class="ramp">
-        <li v-for="b in buckets" :key="b.label">
-          <span class="swatch" :style="{ background: b.color }" aria-hidden="true" />
-          <span class="mono range">{{ b.label }}</span>
-          <span class="note">{{ b.note }}</span>
-        </li>
-      </ul>
-    </div>
 
-    <div v-if="mode === 'asymmetry'" class="block">
-      <h3>Asymétrie</h3>
-      <ul class="lanes">
-        <li>
-          <span class="lane pair" aria-hidden="true" />
-          <span>une voie par sens, à droite du sens de circulation</span>
-        </li>
-        <li>
-          <span class="lane missing" aria-hidden="true" />
-          <span>sens non mesuré</span>
-        </li>
-      </ul>
-      <label class="only">
-        <input type="checkbox" :checked="asymOnly" @change="emit('toggleAsymOnly')" />
-        <span>Asymétriques seulement</span>
-        <span class="mono count">{{ asymCount }}</span>
-      </label>
-      <p class="caveat">
-        Liens dont les deux sens sont mesurés et diffèrent d'au moins {{ asymThreshold }} dB. Les
-        autres sont atténués.
-      </p>
-    </div>
-
-    <!-- Measured and trace links are coloured by SNR above; only topology links
-         have a look of their own, so only they get a row (and a toggle). -->
-    <div v-if="mode !== 'functional'" class="block">
-      <ul class="kinds">
-        <li>
+      <div v-else class="block">
+        <h3>{{ mode === 'asymmetry' ? 'SNR médian par sens' : 'SNR — sens le plus faible' }}</h3>
+        <div class="palettes" role="radiogroup" aria-label="Palette SNR">
           <button
+            v-for="p in palettes"
+            :key="p.id"
             type="button"
-            :class="{ off: !topologyOn }"
-            :aria-pressed="topologyOn"
-            title="Afficher ou masquer les liens sans mesure de signal"
-            @click="emit('toggle', 'topology')"
+            role="radio"
+            :aria-checked="palette === p.id"
+            :class="{ on: palette === p.id }"
+            :title="p.hint"
+            @click="emit('setPalette', p.id)"
           >
-            <span class="mark topology" aria-hidden="true" />
-            <span class="label">Liens topologiques</span>
-            <span class="mono count">{{ counts.topology ?? 0 }}</span>
+            {{ p.label }}
           </button>
-        </li>
-      </ul>
-      <p class="caveat">
-        Un lien topologique prouve que les deux relais s'entendent, mais le champ
-        <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
-      </p>
+        </div>
+        <!-- The ramp is ordinal, so every step carries its dB range: the colour is
+             an ordering, not a readable value. -->
+        <ul class="ramp">
+          <li v-for="b in buckets" :key="b.label">
+            <span class="swatch" :style="{ background: b.color }" aria-hidden="true" />
+            <span class="mono range">{{ b.label }}</span>
+            <span class="note">{{ b.note }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div v-if="mode === 'asymmetry'" class="block">
+        <h3>Asymétrie</h3>
+        <ul class="lanes">
+          <li>
+            <span class="lane pair" aria-hidden="true" />
+            <span>une voie par sens, à droite du sens de circulation</span>
+          </li>
+          <li>
+            <span class="lane missing" aria-hidden="true" />
+            <span>sens non mesuré</span>
+          </li>
+        </ul>
+        <label class="only">
+          <input type="checkbox" :checked="asymOnly" @change="emit('toggleAsymOnly')" />
+          <span>Asymétriques seulement</span>
+          <span class="mono count">{{ asymCount }}</span>
+        </label>
+        <p class="caveat">
+          Liens dont les deux sens sont mesurés et diffèrent d'au moins {{ asymThreshold }} dB. Les
+          autres sont atténués.
+        </p>
+      </div>
+
+      <!-- Measured and trace links are coloured by SNR above; only topology links
+           have a look of their own, so only they get a row (and a toggle). -->
+      <div v-if="mode !== 'functional'" class="block">
+        <ul class="kinds">
+          <li>
+            <button
+              type="button"
+              :class="{ off: !topologyOn }"
+              :aria-pressed="topologyOn"
+              title="Afficher ou masquer les liens sans mesure de signal"
+              @click="emit('toggle', 'topology')"
+            >
+              <span class="mark topology" aria-hidden="true" />
+              <span class="label">Liens topologiques</span>
+              <span class="mono count">{{ counts.topology ?? 0 }}</span>
+            </button>
+          </li>
+        </ul>
+        <p class="caveat">
+          Un lien topologique prouve que les deux relais s'entendent, mais le champ
+          <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
+        </p>
+      </div>
     </div>
   </div>
 </template>
@@ -163,6 +181,59 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
   border-radius: var(--radius);
   backdrop-filter: blur(6px);
   max-width: 290px;
+}
+
+.head {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.head .modes {
+  flex: 1;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The fold button exists for narrow screens only. */
+.fold {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  /* Capped here, not on the overlay: a percentage of an auto-height parent is ignored. */
+  .legend {
+    max-width: none;
+    max-height: 45vh;
+    max-height: 45dvh;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .fold {
+    display: inline-flex;
+  }
+
+  .details {
+    display: none;
+  }
+
+  .legend.open .details {
+    display: flex;
+  }
 }
 
 h3 {
