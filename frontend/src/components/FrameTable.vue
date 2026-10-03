@@ -5,6 +5,7 @@ import Column from 'primevue/column'
 import type { Frame } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
 import { payloadFamily, payloadTitle } from '@/styles/payload'
+import { formatDuration, secondsSince } from '@/utils/duration'
 
 const props = defineProps<{
   frames: Frame[]
@@ -19,7 +20,7 @@ const rows = computed(() =>
   (props.frames ?? []).map((f, i) => ({
     ...f,
     rowKey: `${f.wireHash}-${f.at}-${i}`,
-    age: age(f.at),
+    age: formatDuration(secondsSince(f.at)),
     // Each end keeps its panel colour (node-a / node-b) whichever way it goes.
     from: f.forward ? { name: props.aName, end: 'a' } : { name: props.bName, end: 'b' },
     to: f.forward ? { name: props.bName, end: 'b' } : { name: props.aName, end: 'a' },
@@ -27,13 +28,6 @@ const rows = computed(() =>
     typeTitle: payloadTitle(f.payloadType),
   })),
 )
-
-function age(at: string): string {
-  const s = Math.max(0, Math.round((Date.now() - new Date(at).getTime()) / 1000))
-  if (s < 60) return `${s} s`
-  if (s < 3600) return `${Math.round(s / 60)} min`
-  return `${Math.round(s / 3600)} h`
-}
 
 function clock(at: string): string {
   return new Date(at).toLocaleTimeString('fr-FR', {

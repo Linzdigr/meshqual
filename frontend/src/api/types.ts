@@ -161,3 +161,53 @@ export interface BBox {
   maxLng: number
   maxLat: number
 }
+
+/** How much the observed mesh depends on a node to stay connected. */
+export type BackboneLevel = 'low' | 'medium' | 'high' | 'critical'
+
+export interface NodeInfo {
+  key: string
+  name: string
+  nodeType: NodeProperties['nodeType']
+  lat: number | null
+  lon: number | null
+}
+
+export interface NodeNeighbor extends NodeInfo {
+  linkId: string
+  kind: LinkKind
+  samples: number
+  snrQuality: number | null
+  snrBasis?: SnrBasis
+  /** What this node measured hearing the neighbour. */
+  snrToNode: number | null
+  /** What the neighbour measured hearing this node. */
+  snrFromNode: number | null
+  distKm: number | null
+  lastSeen: string
+  ageSec: number
+  community: number | null
+}
+
+export interface Backbone {
+  degree: number
+  community: number
+  /** Distinct groups among the node and its neighbours. */
+  communities: number
+  betweenness: number
+  betweennessRank: number
+  articulation: boolean
+  /** Sizes of the parts its removal would leave, largest first. */
+  splitSizes: number[]
+  level: BackboneLevel
+  reasons: string[]
+}
+
+export interface NodeDetail {
+  node: NodeInfo
+  neighbors: NodeNeighbor[]
+  backbone?: Backbone
+  graph: { nodes: number; links: number; communities: number }
+  lastSeen?: string
+  ageSec?: number
+}

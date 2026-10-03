@@ -22,6 +22,10 @@
   --snr-3: #3987e5;
   --snr-4: #86b6ef;
 
+  /* Link kind badges keep their own colour whatever the SNR palette. */
+  --kind-measured: #1c5cab;
+  --kind-trace: #0d366b;
+
   --no-data: #52514e;
 
   /* Panel only: the two ends of the selected link, and packet type families.
@@ -64,6 +68,9 @@
     --snr-3: #6da7ec;
     --snr-4: #b7d3f6;
 
+    --kind-measured: #2a78d6;
+    --kind-trace: #184f95;
+
     --no-data: #c3c2b7;
 
     --node-a: #fbbf24;
@@ -94,6 +101,9 @@
   --snr-3: #6da7ec;
   --snr-4: #b7d3f6;
 
+  --kind-measured: #2a78d6;
+  --kind-trace: #184f95;
+
   --no-data: #c3c2b7;
 
   --node-a: #fbbf24;
@@ -102,6 +112,34 @@
   --pt-request: #22d3ee;
   --pt-routing: #c4b5fd;
   --pt-data: #a8a29e;
+}
+
+/*
+ * Optional red → green SNR palette (legend switch, data-palette on <html>). The
+ * values mirror SNR_RAMPS.traffic in scale.ts. Lightness still rises with the
+ * signal, so the order survives for readers who cannot tell red from green.
+ */
+:root[data-palette='traffic'] {
+  --snr-1: #b2182b;
+  --snr-2: #e66101;
+  --snr-3: #c99700;
+  --snr-4: #5fb236;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='traffic']:not([data-theme='light']) {
+    --snr-1: #e34a33;
+    --snr-2: #fd8d3c;
+    --snr-3: #fecc5c;
+    --snr-4: #a6dba0;
+  }
+}
+
+:root[data-palette='traffic'][data-theme='dark'] {
+  --snr-1: #e34a33;
+  --snr-2: #fd8d3c;
+  --snr-3: #fecc5c;
+  --snr-4: #a6dba0;
 }
 
 * {

@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yvanferez/meshqual/backend/internal/hub"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 	"github.com/yvanferez/meshqual/backend/internal/store"
+	"github.com/yvanferez/meshqual/backend/internal/topo"
 )
 
 // Deps is what the handlers need.
@@ -40,6 +42,12 @@ type Deps struct {
 type Server struct {
 	d   Deps
 	mux *http.ServeMux
+
+	// The graph analysis behind /api/nodes/{key}, recomputed at most every
+	// topoTTL: it is O(V·E) and a node panel does not need it fresher.
+	topoMu    sync.Mutex
+	topoAt    time.Time
+	topoCache *topo.Analysis
 }
 
 // New builds the HTTP handler. Routing is stdlib ServeMux with method patterns,
@@ -53,6 +61,7 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("GET /api/health", s.health)
 	s.mux.HandleFunc("GET /api/config", s.config)
 	s.mux.HandleFunc("GET /api/nodes", s.nodes)
+	s.mux.HandleFunc("GET /api/nodes/{key}", s.node)
 	s.mux.HandleFunc("GET /api/links", s.links)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}", s.link)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/frames", s.frames)

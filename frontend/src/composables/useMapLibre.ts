@@ -8,6 +8,7 @@ import {
   SURFACE_DARK,
   SURFACE_LIGHT,
   snrStepExpression,
+  type SnrPalette,
 } from '@/styles/scale'
 import { buildLanes, isAsymmetric, laneId, type ViewMode } from '@/map/lanes'
 
@@ -27,6 +28,7 @@ const LAYER_LANE_ARROWS = 'lanes-arrows'
 const LAYER_ACTIVE = 'links-active-line'
 const LAYER_SELECTED = 'links-selected'
 const LAYER_NODES = 'nodes-circles'
+const LAYER_NODE_SELECTED = 'nodes-selected'
 const LAYER_NODE_LABELS = 'nodes-labels'
 
 /**
@@ -240,7 +242,7 @@ function baseStyle(dark: boolean): StyleSpecification {
   }
 }
 
-function dataLayers(dark: boolean, thresholds: readonly number[]) {
+function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
   const surface = dark ? SURFACE_DARK : SURFACE_LIGHT
   const noData = dark ? NO_DATA_DARK : NO_DATA_LIGHT
 
@@ -296,7 +298,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       filter: MEASURED_FILTER,
       layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
       paint: {
-        'line-color': snrStepExpression(thresholds, dark, 'snrQuality') as unknown as ExpressionSpecification,
+        'line-color': snrStepExpression(thresholds, dark, 'snrQuality', palette) as unknown as ExpressionSpecification,
         'line-width': WIDTH,
       },
     },
@@ -323,7 +325,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
       filter: ['==', ['get', 'measured'], true] as ExpressionSpecification,
       layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const, visibility: 'none' as const },
       paint: {
-        'line-color': snrStepExpression(thresholds, dark, 'snr') as unknown as ExpressionSpecification,
+        'line-color': snrStepExpression(thresholds, dark, 'snr', palette) as unknown as ExpressionSpecification,
         'line-width': LANE_WIDTH,
         'line-offset': LANE_OFFSET,
       },
@@ -361,7 +363,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'line-color': [
           'case',
           ['has', 'snrActive'],
-          snrStepExpression(thresholds, dark, 'snrActive'),
+          snrStepExpression(thresholds, dark, 'snrActive', palette),
           noData,
         ] as unknown as ExpressionSpecification,
         'line-width': widthExpr(1),
@@ -385,6 +387,19 @@ function dataLayers(dark: boolean, thresholds: readonly number[]) {
         'circle-color': dark ? SURFACE_DARK : SURFACE_LIGHT,
         'circle-stroke-width': 2,
         'circle-stroke-color': dark ? NO_DATA_DARK : NO_DATA_LIGHT,
+      },
+    },
+    // A ring around the selected node, in text ink like the link selection.
+    {
+      id: LAYER_NODE_SELECTED,
+      type: 'circle' as const,
+      source: NODES_SOURCE,
+      filter: ['==', ['get', 'key'], '__none__'] as ExpressionSpecification,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 7, 12, 11] as ExpressionSpecification,
+        'circle-color': 'rgba(0, 0, 0, 0)',
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': dark ? '#ffffff' : '#0b0b0b',
       },
     },
     {
@@ -420,6 +435,13 @@ const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base
   { layer: LAYER_ACTIVE, prop: 'line-opacity', base: 1 },
 ]
 
+export interface Padding {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
 export interface UseMapOptions {
   container: Ref<HTMLElement | null>
   dark: Ref<boolean>
@@ -428,10 +450,12 @@ export interface UseMapOptions {
   /** Asymmetry view only: hide every link that is not asymmetric. */
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
+  palette: Ref<SnrPalette>
   center?: [number, number]
   zoom?: number
   onMoveEnd: (bbox: BBox) => void
   onSelectLink: (linkId: string | null) => void
+  onSelectNode: (key: string | null) => void
 }
 
 export function useMapLibre(opts: UseMapOptions) {
@@ -448,8 +472,10 @@ export function useMapLibre(opts: UseMapOptions) {
   /** Links asymmetric beyond the threshold, for the "asymmetric only" filter. */
   let emphasizedIds: string[] = []
   /** The selected link and its two ends, which stay opaque while the rest fades. */
-  let focusId: string | null = null
-  let focusEnds: string[] = []
+  let selectedLink: string | null = null
+  let selectedNode: string | null = null
+  let focusLinks: string[] = []
+  let focusNodes: string[] = []
 
   function bboxOf(m: MlMap): BBox {
     const b = m.getBounds()
@@ -507,21 +533,41 @@ export function useMapLibre(opts: UseMapOptions) {
       })
     }
 
+    // Nodes sit on top of links and win a click that touches both.
+    const nodeAt = (point: maplibregl.Point): string | null => {
+      if (!map) return null
+      const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+        [point.x - CLICK_TOLERANCE, point.y - CLICK_TOLERANCE],
+        [point.x + CLICK_TOLERANCE, point.y + CLICK_TOLERANCE],
+      ]
+      const key = map.queryRenderedFeatures(box, { layers: [LAYER_NODES] })[0]?.properties?.['key']
+      return typeof key === 'string' ? key : null
+    }
+
     map.on('click', (e) => {
-      const hits = hitAt(e.point)
-      const id = hits[0]?.properties?.['linkId']
-      opts.onSelectLink(typeof id === 'string' ? id : null)
+      const node = nodeAt(e.point)
+      if (node) {
+        opts.onSelectNode(node)
+        return
+      }
+      const id = hitAt(e.point)[0]?.properties?.['linkId']
+      if (typeof id === 'string') {
+        opts.onSelectLink(id)
+        return
+      }
+      opts.onSelectLink(null)
+      opts.onSelectNode(null)
     })
 
     map.on('mousemove', (e) => {
       if (!map) return
-      map.getCanvas().style.cursor = hitAt(e.point).length > 0 ? 'pointer' : ''
+      map.getCanvas().style.cursor = nodeAt(e.point) || hitAt(e.point).length > 0 ? 'pointer' : ''
     })
   }
 
   function addDataLayers() {
     if (!map) return
-    for (const layer of dataLayers(opts.dark.value, opts.thresholds.value)) {
+    for (const layer of dataLayers(opts.dark.value, opts.thresholds.value, opts.palette.value)) {
       if (!map.getLayer(layer.id)) map.addLayer(layer as never)
     }
   }
@@ -543,6 +589,11 @@ export function useMapLibre(opts: UseMapOptions) {
     emphasizedIds = fc.features
       .filter((f) => isAsymmetric(f.properties, threshold))
       .map((f) => f.properties.linkId)
+    // A refresh can bring in more of a selected node's links (after a zoom out).
+    if (selectedNode) {
+      computeFocus()
+      applyFocus()
+    }
     trackActive(fc)
   }
 
@@ -689,49 +740,87 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   function highlight(linkId: string | null) {
-    focusId = linkId
-    const p = linkId ? findLink(linkId)?.properties : undefined
-    focusEnds = p ? [p.aKey, p.bKey] : []
+    selectedLink = linkId
+    computeFocus()
     if (!map || !map.getLayer(LAYER_SELECTED)) return
     map.setFilter(LAYER_SELECTED, ['==', ['get', 'linkId'], linkId ?? '__none__'])
     applyFocus()
+  }
+
+  function highlightNode(key: string | null) {
+    selectedNode = key
+    computeFocus()
+    if (!map || !map.getLayer(LAYER_NODE_SELECTED)) return
+    map.setFilter(LAYER_NODE_SELECTED, ['==', ['get', 'key'], key ?? '__none__'])
+    applyFocus()
+  }
+
+  /**
+   * What stays opaque: a selected link and its two ends, or a selected node with
+   * every live link it has and the neighbours at their other end.
+   */
+  function computeFocus() {
+    focusLinks = []
+    focusNodes = []
+    if (selectedLink) {
+      const p = findLink(selectedLink)?.properties
+      focusLinks = [selectedLink]
+      focusNodes = p ? [p.aKey, p.bKey] : []
+    } else if (selectedNode) {
+      const key = selectedNode
+      focusNodes = [key]
+      for (const f of pendingLinks?.features ?? []) {
+        const { aKey, bKey, linkId } = f.properties
+        if (aKey !== key && bKey !== key) continue
+        focusLinks.push(linkId)
+        focusNodes.push(aKey === key ? bKey : aKey)
+      }
+    }
   }
 
   function findLink(linkId: string) {
     return pendingLinks?.features.find((f) => f.properties.linkId === linkId)
   }
 
-  /** Fades everything but the selected link and its two ends; restores it all without one. */
+  /** Fades everything outside the focus (see computeFocus); restores it all without one. */
   function applyFocus() {
     if (!map || !ready) return
-    const selected: ExpressionSpecification = ['==', ['get', 'linkId'], focusId ?? '__none__']
+    const on = selectedLink !== null || selectedNode !== null
+    const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', focusLinks]]
     for (const { layer, prop, base } of LINK_OPACITY) {
-      map.setPaintProperty(layer, prop, focusId ? ['case', selected, 1, FOCUS_DIM] : base)
+      map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : base)
     }
-    const isEnd: ExpressionSpecification = ['in', ['get', 'key'], ['literal', focusEnds]]
-    const nodeOpacity = focusId ? ['case', isEnd, 1, NODE_FOCUS_DIM] : 1
+    const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', focusNodes]]
+    const nodeOpacity = on ? ['case', inNodes, 1, NODE_FOCUS_DIM] : 1
     map.setPaintProperty(LAYER_NODES, 'circle-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_NODES, 'circle-stroke-opacity', nodeOpacity)
-    // Only the two ends keep a label: other labels would compete for the space.
-    map.setFilter(LAYER_NODE_LABELS, focusId ? isEnd : null)
+    // Only focused nodes keep a label: other labels would compete for the space.
+    map.setFilter(LAYER_NODE_LABELS, on ? inNodes : null)
   }
 
   /**
    * Frames the link so it fills the part of the map left visible by the
    * overlays, given as padding in pixels.
    */
-  function focusLink(linkId: string, padding: { top: number; right: number; bottom: number; left: number }) {
+  function focusLink(linkId: string, padding: Padding) {
     const f = findLink(linkId)
-    if (!map || !f || f.geometry.type !== 'LineString') return
-    const [a, b] = f.geometry.coordinates as [number[], number[]]
+    if (!f || f.geometry.type !== 'LineString') return
+    focusPoints(f.geometry.coordinates as [number, number][], padding)
+  }
+
+  /** Frames a set of [lng, lat] points the same way (a node and its neighbours). */
+  function focusPoints(points: [number, number][], padding: Padding) {
+    if (!map || points.length === 0) return
+    const lngs = points.map((p) => p[0])
+    const lats = points.map((p) => p[1])
     // fitBounds refuses padding wider than the map; shrink it proportionally.
     const { clientWidth: w, clientHeight: h } = map.getContainer()
     const sx = Math.min(1, (w - 80) / (padding.left + padding.right))
     const sy = Math.min(1, (h - 80) / (padding.top + padding.bottom))
     map.fitBounds(
       [
-        [Math.min(a[0]!, b[0]!), Math.min(a[1]!, b[1]!)],
-        [Math.max(a[0]!, b[0]!), Math.max(a[1]!, b[1]!)],
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
       ],
       {
         padding: {
@@ -751,6 +840,7 @@ export function useMapLibre(opts: UseMapOptions) {
     if (!map || !ready) return
     for (const id of [
       LAYER_NODE_LABELS,
+      LAYER_NODE_SELECTED,
       LAYER_NODES,
       LAYER_SELECTED,
       LAYER_ACTIVE,
@@ -789,5 +879,16 @@ export function useMapLibre(opts: UseMapOptions) {
     ready = false
   })
 
-  return { mount, setLinks, setNodes, highlight, retheme, fitTo, applyView, focusLink }
+  return {
+    mount,
+    setLinks,
+    setNodes,
+    highlight,
+    highlightNode,
+    retheme,
+    fitTo,
+    applyView,
+    focusLink,
+    focusPoints,
+  }
 }

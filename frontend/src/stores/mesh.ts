@@ -10,23 +10,34 @@ import type {
   HistoryBucket,
   LinkKind,
   LinkProperties,
+  NodeDetail,
   NodeProperties,
   ServerConfig,
 } from '@/api/types'
-import { DEFAULT_SNR_THRESHOLDS } from '@/styles/scale'
+import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
 import { isAsymmetric, type ViewMode } from '@/map/lanes'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
 
 const VIEW_KEY = 'meshqual.view'
 
+interface ViewPrefs {
+  mode: ViewMode
+  asymOnly: boolean
+  palette: SnrPalette
+}
+
 /** View preferences are per browser; storage may be unavailable, so it is optional. */
-function loadView(): { mode: ViewMode; asymOnly: boolean } {
+function loadView(): ViewPrefs {
   try {
-    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<{ mode: string; asymOnly: boolean }>
-    return { mode: v.mode === 'asymmetry' ? 'asymmetry' : 'quality', asymOnly: v.asymOnly === true }
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<Record<keyof ViewPrefs, unknown>>
+    return {
+      mode: v.mode === 'asymmetry' ? 'asymmetry' : 'quality',
+      asymOnly: v.asymOnly === true,
+      palette: v.palette === 'traffic' ? 'traffic' : 'blue',
+    }
   } catch {
-    return { mode: 'quality', asymOnly: false }
+    return { mode: 'quality', asymOnly: false, palette: 'blue' }
   }
 }
 
@@ -42,6 +53,9 @@ export const useMeshStore = defineStore('mesh', () => {
   const health = ref<Health | null>(null)
 
   const selectedLinkId = ref<string | null>(null)
+  // A node and a link are never selected together: the panel shows one or the other.
+  const selectedNodeKey = ref<string | null>(null)
+  const nodeDetail = ref<NodeDetail | null>(null)
   const frames = ref<Frame[]>([])
   const history = ref<HistoryBucket[]>([])
 
@@ -52,11 +66,22 @@ export const useMeshStore = defineStore('mesh', () => {
   const savedView = loadView()
   const viewMode = ref<ViewMode>(savedView.mode)
   const asymOnly = ref(savedView.asymOnly)
-  watch([viewMode, asymOnly], ([mode, only]) => {
+  const palette = ref<SnrPalette>(savedView.palette)
+  watch([viewMode, asymOnly, palette], ([mode, only, pal]) => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only }))
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal }))
     } catch {}
   })
+  // The CSS ramp variables (legend, frame table) switch on this attribute; the
+  // map gets the same palette through its own props.
+  watch(
+    palette,
+    (p) => {
+      if (p === 'traffic') document.documentElement.setAttribute('data-palette', 'traffic')
+      else document.documentElement.removeAttribute('data-palette')
+    },
+    { immediate: true },
+  )
 
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -128,8 +153,32 @@ export const useMeshStore = defineStore('mesh', () => {
     }
   }
 
+  async function selectNode(key: string | null) {
+    selectedNodeKey.value = key
+    nodeDetail.value = null
+    if (key) {
+      selectedLinkId.value = null
+      frames.value = []
+      history.value = []
+      await loadNode(key)
+    }
+  }
+
+  async function loadNode(key: string) {
+    try {
+      const d = await api.node(key)
+      if (selectedNodeKey.value === key) nodeDetail.value = d
+    } catch (e) {
+      if (!isAbort(e)) error.value = describe(e)
+    }
+  }
+
   async function selectLink(linkId: string | null) {
     selectedLinkId.value = linkId
+    if (linkId) {
+      selectedNodeKey.value = null
+      nodeDetail.value = null
+    }
     frames.value = []
     history.value = []
     if (!linkId) return
@@ -181,6 +230,8 @@ export const useMeshStore = defineStore('mesh', () => {
     config,
     health,
     selectedLinkId,
+    selectedNodeKey,
+    nodeDetail,
     selectedLink,
     frames,
     history,
@@ -189,6 +240,7 @@ export const useMeshStore = defineStore('mesh', () => {
     minSamples,
     viewMode,
     asymOnly,
+    palette,
     asymmetryThresholdDb,
     asymmetricCount,
     loading,
@@ -202,6 +254,8 @@ export const useMeshStore = defineStore('mesh', () => {
     refreshLinks,
     refreshHealth,
     selectLink,
+    selectNode,
+    loadNode,
     loadFrames,
     loadHistory,
     pushFrame,

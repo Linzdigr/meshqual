@@ -7,6 +7,7 @@ import type { BBox, LinkKind } from '@/api/types'
 import MeshMap from '@/components/MeshMap.vue'
 import SnrLegend from '@/components/SnrLegend.vue'
 import LinkPanel from '@/components/LinkPanel.vue'
+import NodePanel from '@/components/NodePanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
 
 const store = useMeshStore()
@@ -46,6 +47,21 @@ watch(
     if (!id) return
     await nextTick()
     requestAnimationFrame(() => meshMap.value?.focus(id, focusPadding()))
+  },
+)
+
+// Frame a selected node with its neighbours once their positions are known.
+watch(
+  () => store.nodeDetail,
+  async (d) => {
+    if (!d) return
+    const points: [number, number][] = []
+    for (const n of [d.node, ...d.neighbors]) {
+      if (n.lat !== null && n.lon !== null) points.push([n.lon, n.lat])
+    }
+    if (points.length === 0) return
+    await nextTick()
+    requestAnimationFrame(() => meshMap.value?.focusPoints(points, focusPadding()))
   },
 )
 
@@ -134,13 +150,16 @@ watch(
         :links="store.links"
         :nodes="store.nodes"
         :selected-link-id="store.selectedLinkId"
+        :selected-node-key="store.selectedNodeKey"
         :thresholds="store.snrThresholds"
         :dark="dark"
         :mode="store.viewMode"
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
+        :palette="store.palette"
         @moveend="onMoveEnd"
         @select="(id) => store.selectLink(id)"
+        @select-node="(key) => store.selectNode(key)"
       />
 
       <div ref="legendEl" class="overlay left">
@@ -152,13 +171,25 @@ watch(
           :asym-only="store.asymOnly"
           :asym-count="store.asymmetricCount"
           :asym-threshold="store.asymmetryThresholdDb"
+          :palette="store.palette"
           @toggle="onToggleKind"
           @set-mode="(m) => (store.viewMode = m)"
           @toggle-asym-only="store.asymOnly = !store.asymOnly"
+          @set-palette="(p) => (store.palette = p)"
         />
       </div>
 
-      <div v-if="store.selectedLink" ref="panelEl" class="overlay right">
+      <div v-if="store.selectedNodeKey" ref="panelEl" class="overlay right">
+        <NodePanel
+          :node-key="store.selectedNodeKey"
+          :detail="store.nodeDetail"
+          :thresholds="store.snrThresholds"
+          @close="store.selectNode(null)"
+          @open-link="(id) => store.selectLink(id)"
+        />
+      </div>
+
+      <div v-else-if="store.selectedLink" ref="panelEl" class="overlay right">
         <LinkPanel
           :link="store.selectedLink"
           :frames="store.frames"

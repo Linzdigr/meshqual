@@ -1,23 +1,27 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
-import { useMapLibre } from '@/composables/useMapLibre'
+import { useMapLibre, type Padding } from '@/composables/useMapLibre'
 import type { ViewMode } from '@/map/lanes'
+import type { SnrPalette } from '@/styles/scale'
 
 const props = defineProps<{
   links: FeatureCollection<LinkProperties>
   nodes: FeatureCollection<NodeProperties>
   selectedLinkId: string | null
+  selectedNodeKey: string | null
   thresholds: number[]
   dark: boolean
   mode: ViewMode
   asymOnly: boolean
   asymThreshold: number
+  palette: SnrPalette
 }>()
 
 const emit = defineEmits<{
   moveend: [BBox]
   select: [string | null]
+  selectNode: [string | null]
 }>()
 
 const container = ref<HTMLElement | null>(null)
@@ -26,6 +30,7 @@ const darkRef = ref(props.dark)
 const modeRef = ref(props.mode)
 const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
+const paletteRef = ref(props.palette)
 
 const map = useMapLibre({
   container,
@@ -34,8 +39,10 @@ const map = useMapLibre({
   mode: modeRef,
   asymOnly: asymOnlyRef,
   asymThreshold: asymThresholdRef,
+  palette: paletteRef,
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
+  onSelectNode: (key) => emit('selectNode', key),
 })
 
 onMounted(() => map.mount())
@@ -74,11 +81,13 @@ watch(
   },
 )
 watch(() => props.selectedLinkId, (id) => map.highlight(id))
+watch(() => props.selectedNodeKey, (key) => map.highlightNode(key))
 
 defineExpose({
   /** Frames a link inside the map area left free by the overlays (padding in px). */
-  focus: (linkId: string, padding: { top: number; right: number; bottom: number; left: number }) =>
-    map.focusLink(linkId, padding),
+  focus: (linkId: string, padding: Padding) => map.focusLink(linkId, padding),
+  /** Frames [lng, lat] points the same way: a node and its neighbours. */
+  focusPoints: (points: [number, number][], padding: Padding) => map.focusPoints(points, padding),
 })
 
 watch(
@@ -100,14 +109,16 @@ watch(
 )
 
 watch(
-  () => [props.dark, props.thresholds] as const,
-  ([dark, thresholds]) => {
+  () => [props.dark, props.thresholds, props.palette] as const,
+  ([dark, thresholds, palette]) => {
     darkRef.value = dark
     thresholdsRef.value = thresholds
+    paletteRef.value = palette
     map.retheme()
     map.setLinks(props.links)
     map.setNodes(props.nodes)
     map.highlight(props.selectedLinkId)
+    map.highlightNode(props.selectedNodeKey)
   },
 )
 </script>

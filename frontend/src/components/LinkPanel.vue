@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Frame, HistoryBucket, LinkProperties } from '@/api/types'
 import FrameTable from './FrameTable.vue'
 import SnrSparkline from './SnrSparkline.vue'
+import { formatDuration } from '@/utils/duration'
 
 const props = defineProps<{
   link: LinkProperties | null
@@ -260,7 +261,7 @@ const tiles = computed(() => {
           </h2>
           <p class="sub">
             <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
-            <span class="mono">vu il y a {{ link.ageSec }} s</span>
+            <span class="mono">vu il y a {{ formatDuration(link.ageSec) }}</span>
             <span v-if="live" class="live">
               <i aria-hidden="true" />flux actif
             </span>
@@ -465,13 +466,13 @@ h2 {
 }
 
 .kind.measured {
-  border-color: var(--snr-2);
-  color: var(--snr-2);
+  border-color: var(--kind-measured);
+  color: var(--kind-measured);
 }
 
 .kind.trace {
-  border-color: var(--snr-1);
-  color: var(--snr-1);
+  border-color: var(--kind-trace);
+  color: var(--kind-trace);
 }
 
 .live {

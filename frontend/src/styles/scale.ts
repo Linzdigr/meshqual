@@ -21,6 +21,26 @@
 export const SNR_RAMP_LIGHT = ['#0d366b', '#1c5cab', '#3987e5', '#86b6ef'] as const
 export const SNR_RAMP_DARK = ['#184f95', '#2a78d6', '#6da7ec', '#b7d3f6'] as const
 
+/**
+ * The blue ramp above is the default. 'traffic' is an opt-in red → green ramp
+ * for readers used to that convention; it keeps lightness rising with the signal
+ * so the order still reads without the hue. Mirrored as CSS variables in
+ * theme.css under [data-palette='traffic'].
+ */
+export type SnrPalette = 'blue' | 'traffic'
+
+export const SNR_RAMPS: Record<SnrPalette, { light: readonly string[]; dark: readonly string[] }> = {
+  blue: { light: SNR_RAMP_LIGHT, dark: SNR_RAMP_DARK },
+  traffic: {
+    light: ['#b2182b', '#e66101', '#c99700', '#5fb236'],
+    dark: ['#e34a33', '#fd8d3c', '#fecc5c', '#a6dba0'],
+  },
+}
+
+function rampOf(dark: boolean, palette: SnrPalette): readonly string[] {
+  return dark ? SNR_RAMPS[palette].dark : SNR_RAMPS[palette].light
+}
+
 /** No measurement exists for a topology link, so it gets ink, not a 5th ramp step. */
 export const NO_DATA_LIGHT = '#52514e'
 export const NO_DATA_DARK = '#c3c2b7'
@@ -71,8 +91,13 @@ export function snrBucketIndex(snr: number, thresholds: readonly number[]): numb
   return i
 }
 
-export function snrColor(snr: number, thresholds: readonly number[], dark: boolean): string {
-  const ramp = dark ? SNR_RAMP_DARK : SNR_RAMP_LIGHT
+export function snrColor(
+  snr: number,
+  thresholds: readonly number[],
+  dark: boolean,
+  palette: SnrPalette = 'blue',
+): string {
+  const ramp = rampOf(dark, palette)
   return ramp[snrBucketIndex(snr, thresholds)] ?? ramp[ramp.length - 1]!
 }
 
@@ -87,8 +112,9 @@ export function snrStepExpression(
   thresholds: readonly number[],
   dark: boolean,
   property = 'snrMedian',
+  palette: SnrPalette = 'blue',
 ): unknown[] {
-  const ramp = dark ? SNR_RAMP_DARK : SNR_RAMP_LIGHT
+  const ramp = rampOf(dark, palette)
   const expr: unknown[] = ['step', ['get', property], ramp[0]]
   thresholds.forEach((t, i) => {
     expr.push(t, ramp[i + 1] ?? ramp[ramp.length - 1])

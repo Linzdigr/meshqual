@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { snrBuckets } from '@/styles/scale'
+import { snrBuckets, type SnrPalette } from '@/styles/scale'
 import type { LinkKind } from '@/api/types'
 import type { ViewMode } from '@/map/lanes'
 
@@ -12,9 +12,20 @@ const props = defineProps<{
   asymOnly: boolean
   asymCount: number
   asymThreshold: number
+  palette: SnrPalette
 }>()
 
-const emit = defineEmits<{ toggle: [LinkKind]; setMode: [ViewMode]; toggleAsymOnly: [] }>()
+const emit = defineEmits<{
+  toggle: [LinkKind]
+  setMode: [ViewMode]
+  toggleAsymOnly: []
+  setPalette: [SnrPalette]
+}>()
+
+const palettes: { id: SnrPalette; label: string; hint: string }[] = [
+  { id: 'blue', label: 'Bleu', hint: 'Une teinte : lisible quelle que soit la vision des couleurs' },
+  { id: 'traffic', label: 'Rouge → vert', hint: 'Rouge pour un signal faible, vert pour un signal fort' },
+]
 
 const modes: { id: ViewMode; label: string; hint: string }[] = [
   { id: 'quality', label: 'Qualité', hint: 'Une ligne par lien, couleur du sens le plus faible' },
@@ -61,6 +72,20 @@ function active(kind: LinkKind): boolean {
 
     <div class="block">
       <h3>{{ mode === 'asymmetry' ? 'SNR médian par sens' : 'SNR — sens le plus faible' }}</h3>
+      <div class="palettes" role="radiogroup" aria-label="Palette SNR">
+        <button
+          v-for="p in palettes"
+          :key="p.id"
+          type="button"
+          role="radio"
+          :aria-checked="palette === p.id"
+          :class="{ on: palette === p.id }"
+          :title="p.hint"
+          @click="emit('setPalette', p.id)"
+        >
+          {{ p.label }}
+        </button>
+      </div>
       <!-- The ramp is ordinal, so every step carries its dB range: the colour is
            an ordering, not a readable value. -->
       <ul class="ramp">
@@ -210,12 +235,12 @@ ul {
 }
 
 .mark.measured {
-  border-top-color: var(--snr-2);
+  border-top-color: var(--kind-measured);
   border-top-width: 3px;
 }
 
 .mark.trace {
-  border-top-color: var(--snr-1);
+  border-top-color: var(--kind-trace);
   border-top-width: 3px;
 }
 
@@ -247,6 +272,28 @@ ul {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+}
+
+.palettes {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.palettes button {
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.palettes button.on {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .modes button.on {

@@ -6,6 +6,7 @@ import type {
   HistoryBucket,
   LinkKind,
   LinkProperties,
+  NodeDetail,
   NodeProperties,
   ServerConfig,
 } from './types'
@@ -58,6 +59,9 @@ export const api = {
 
   nodes: (bbox: BBox | null, signal?: AbortSignal) =>
     get<FeatureCollection<NodeProperties>>(`/api/nodes?${bboxParam(bbox)}`, signal),
+
+  node: (key: string, signal?: AbortSignal) =>
+    get<NodeDetail>(`/api/nodes/${encodeURIComponent(key)}`, signal),
 
   links: (q: LinksQuery, signal?: AbortSignal) => {
     const params = new URLSearchParams()

@@ -419,3 +419,68 @@ func TestNoNullSlicesInJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeDetailNeighboursAndBackbone(t *testing.T) {
+	f := newFixture(t)
+	// Path a -> b heard by obs: a-b is topology, b-obs is measured by obs.
+	f.feed(t, floodFrame([]string{f.a, f.b}, 2), f.obs, ptrF(8.25), ptrI(-95))
+	f.feed(t, floodFrame([]string{f.a, f.b}, 2), f.obs, ptrF(6.00), ptrI(-99))
+
+	// Keys are accepted in any case.
+	res, body := f.get(t, "/api/nodes/"+strings.ToLower(f.b))
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	var got struct {
+		Node      struct{ Key, Name, NodeType string }
+		Neighbors []struct {
+			Key         string
+			Kind        string
+			SnrToNode   *float64
+			SnrFromNode *float64
+			DistKm      *float64
+		}
+		Backbone struct {
+			Articulation bool
+			SplitSizes   []int
+			Level        string
+			Reasons      []string
+		}
+		LastSeen string
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, body)
+	}
+	if got.Node.Key != f.b || got.Node.Name != "fr35_Rpt-Broceliande" || got.Node.NodeType != "repeater" {
+		t.Errorf("node = %+v", got.Node)
+	}
+	if len(got.Neighbors) != 2 {
+		t.Fatalf("neighbours = %d, want a and obs: %s", len(got.Neighbors), body)
+	}
+	// The measured link sorts first (it has an SNR), and its SNR is what obs
+	// measured hearing b: "from" the node's point of view, never "to".
+	first := got.Neighbors[0]
+	if first.Key != f.obs || first.Kind != "measured" {
+		t.Errorf("first neighbour = %+v, want the measured obs link", first)
+	}
+	if first.SnrFromNode == nil || first.SnrToNode != nil {
+		t.Errorf("obs link: to=%v from=%v, want only from (obs heard b)", first.SnrToNode, first.SnrFromNode)
+	}
+	if first.DistKm == nil {
+		t.Error("distance missing between two positioned nodes")
+	}
+	// b sits between a and obs on a path: removing it splits them.
+	if !got.Backbone.Articulation || len(got.Backbone.Reasons) == 0 {
+		t.Errorf("backbone = %+v, want an articulation with reasons", got.Backbone)
+	}
+	if got.Backbone.Level == "critical" {
+		t.Error("b only separates single nodes, which is not critical")
+	}
+	if got.LastSeen == "" {
+		t.Error("lastSeen missing")
+	}
+
+	if res, _ := f.get(t, "/api/nodes/"+keyFor(0x99)); res.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown node: status %d, want 404", res.StatusCode)
+	}
+}
