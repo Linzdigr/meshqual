@@ -2,7 +2,7 @@ import type { LineString } from 'geojson'
 import type { Feature, FeatureCollection, LinkProperties } from '@/api/types'
 
 /** How links are drawn: one line per link, or one lane per direction. */
-export type ViewMode = 'quality' | 'asymmetry'
+export type ViewMode = 'quality' | 'asymmetry' | 'functional'
 
 export interface LaneProperties {
   /** `${linkId}:ab` or `${linkId}:ba`. */

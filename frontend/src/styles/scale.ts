@@ -41,6 +41,13 @@ function rampOf(dark: boolean, palette: SnrPalette): readonly string[] {
   return dark ? SNR_RAMPS[palette].dark : SNR_RAMPS[palette].light
 }
 
+/**
+ * The "Fonctionnel" view drops the ramp: every link above the usable threshold
+ * gets the same light blue, the question being only "does it work?".
+ */
+export const FUNCTIONAL_LIGHT = '#4f97ea'
+export const FUNCTIONAL_DARK = '#9cc6f5'
+
 /** No measurement exists for a topology link, so it gets ink, not a 5th ramp step. */
 export const NO_DATA_LIGHT = '#52514e'
 export const NO_DATA_DARK = '#c3c2b7'

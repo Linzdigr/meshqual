@@ -32,7 +32,7 @@ function loadView(): ViewPrefs {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<Record<keyof ViewPrefs, unknown>>
     return {
-      mode: v.mode === 'asymmetry' ? 'asymmetry' : 'quality',
+      mode: v.mode === 'asymmetry' || v.mode === 'functional' ? v.mode : 'quality',
       asymOnly: v.asymOnly === true,
       palette: v.palette === 'traffic' ? 'traffic' : 'blue',
     }
@@ -93,6 +93,11 @@ export const useMeshStore = defineStore('mesh', () => {
   const framesMax = computed(() => config.value?.framesMax ?? 20)
   const pushIntervalMs = computed(() => config.value?.pushIntervalMs ?? 2000)
   const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
+  /** Links shown by the "Fonctionnel" view: weaker direction at or above the usable threshold. */
+  const functionalCount = computed(() => {
+    const t = snrThresholds.value[1] ?? -5
+    return links.value.features.filter((f) => (f.properties.snrQuality ?? -Infinity) >= t).length
+  })
   const asymmetricCount = computed(
     () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
   )
@@ -243,6 +248,7 @@ export const useMeshStore = defineStore('mesh', () => {
     palette,
     asymmetryThresholdDb,
     asymmetricCount,
+    functionalCount,
     loading,
     error,
     lastRefresh,

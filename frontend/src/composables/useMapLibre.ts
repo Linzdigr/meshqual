@@ -3,6 +3,8 @@ import { onScopeDispose, type Ref } from 'vue'
 import type { LineString } from 'geojson'
 import type { BBox, Feature, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import {
+  FUNCTIONAL_DARK,
+  FUNCTIONAL_LIGHT,
   NO_DATA_DARK,
   NO_DATA_LIGHT,
   SURFACE_DARK,
@@ -78,6 +80,8 @@ interface ActiveProperties {
   /** Whether the link is drawn as lanes in the asymmetry view (not topology). */
   lanes: boolean
   emphasized: boolean
+  /** Usable in the "Fonctionnel" view (quality at or above the usable threshold). */
+  functional: boolean
   weight: number
   /** SNR of the newest packet, else its direction's median, else the link quality. */
   snrActive?: number
@@ -242,6 +246,29 @@ function baseStyle(dark: boolean): StyleSpecification {
   }
 }
 
+/** Measured and trace links: the weaker direction's SNR on the ramp. */
+function measuredColor(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
+  return snrStepExpression(thresholds, dark, 'snrQuality', palette) as unknown as ExpressionSpecification
+}
+
+/** Animated links: the newest packet's SNR when it had one, ink otherwise. */
+function activeColor(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
+  return [
+    'case',
+    ['has', 'snrActive'],
+    snrStepExpression(thresholds, dark, 'snrActive', palette),
+    dark ? NO_DATA_DARK : NO_DATA_LIGHT,
+  ] as unknown as ExpressionSpecification
+}
+
+/**
+ * The "Fonctionnel" view keeps links whose weaker direction reaches the usable
+ * bucket (the second threshold, -5 dB by default). Links with no SNR fail it.
+ */
+function functionalFilter(thresholds: readonly number[]): ExpressionSpecification {
+  return ['>=', ['coalesce', ['get', 'snrQuality'], -1000], thresholds[1] ?? -5]
+}
+
 function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
   const surface = dark ? SURFACE_DARK : SURFACE_LIGHT
   const noData = dark ? NO_DATA_DARK : NO_DATA_LIGHT
@@ -298,7 +325,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       filter: MEASURED_FILTER,
       layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
       paint: {
-        'line-color': snrStepExpression(thresholds, dark, 'snrQuality', palette) as unknown as ExpressionSpecification,
+        'line-color': measuredColor(dark, thresholds, palette),
         'line-width': WIDTH,
       },
     },
@@ -360,12 +387,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       source: ACTIVE_SOURCE,
       layout: { 'line-cap': 'butt' as const, 'line-join': 'round' as const },
       paint: {
-        'line-color': [
-          'case',
-          ['has', 'snrActive'],
-          snrStepExpression(thresholds, dark, 'snrActive', palette),
-          noData,
-        ] as unknown as ExpressionSpecification,
+        'line-color': activeColor(dark, thresholds, palette),
         'line-width': widthExpr(1),
         'line-dasharray': DASH_FRAMES[0] as unknown as ExpressionSpecification,
       },
@@ -623,6 +645,7 @@ export function useMapLibre(opts: UseMapOptions) {
             laneId: laneId(p.linkId, p.lastForward),
             lanes: p.kind !== 'topology',
             emphasized: isAsymmetric(p, opts.asymThreshold.value),
+            functional: (p.snrQuality ?? -Infinity) >= (opts.thresholds.value[1] ?? -5),
             weight: p.weight,
             ...(snr !== undefined && { snrActive: snr }),
           },
@@ -656,13 +679,21 @@ export function useMapLibre(opts: UseMapOptions) {
     if (!map || !ready) return
     const m = map
     const asym = opts.mode.value === 'asymmetry'
+    const functional = opts.mode.value === 'functional'
     const only = asym && opts.asymOnly.value
     const show = (id: string, on: boolean) => m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
     show(LAYER_MEASURED, !asym)
     show(LAYER_LANES, asym)
     show(LAYER_LANES_MISSING, asym)
     show(LAYER_LANE_ARROWS, asym)
-    show(LAYER_TOPOLOGY, !only)
+    // Topology links have no SNR, so they can never be shown as working.
+    show(LAYER_TOPOLOGY, !only && !functional)
+    const dark = opts.dark.value
+    const thresholds = opts.thresholds.value
+    const palette = opts.palette.value
+    const mono = dark ? FUNCTIONAL_DARK : FUNCTIONAL_LIGHT
+    m.setPaintProperty(LAYER_MEASURED, 'line-color', functional ? mono : measuredColor(dark, thresholds, palette))
+    m.setPaintProperty(LAYER_ACTIVE, 'line-color', functional ? mono : activeColor(dark, thresholds, palette))
     m.setPaintProperty(
       LAYER_CASING,
       'line-width',
@@ -688,11 +719,13 @@ export function useMapLibre(opts: UseMapOptions) {
 
   /**
    * One place composes every filter: link kind, the lines hidden under an
-   * animation, and the "asymmetric only" restriction.
+   * animation, the "asymmetric only" restriction and the "Fonctionnel" view.
    */
   function applyFilters() {
     if (!map || !ready) return
     const only = opts.mode.value === 'asymmetry' && opts.asymOnly.value
+    const functional = opts.mode.value === 'functional'
+    const works = functionalFilter(opts.thresholds.value)
     const notIn = (prop: string, ids: string[]): ExpressionSpecification => [
       '!',
       ['in', ['get', prop], ['literal', ids]],
@@ -701,12 +734,23 @@ export function useMapLibre(opts: UseMapOptions) {
     const activeLanes = [...active.values()].map((a) => a.feature.properties.laneId)
     const emph: ExpressionSpecification[] = only ? [EMPHASIZED] : []
     map.setFilter(LAYER_TOPOLOGY, ['all', TOPOLOGY_FILTER, notIn('linkId', activeLinks)])
-    map.setFilter(LAYER_MEASURED, ['all', MEASURED_FILTER, notIn('linkId', activeLinks)])
+    map.setFilter(LAYER_MEASURED, [
+      'all',
+      MEASURED_FILTER,
+      notIn('linkId', activeLinks),
+      ...(functional ? [works] : []),
+    ])
     map.setFilter(LAYER_LANES, ['all', ['==', ['get', 'measured'], true], notIn('laneId', activeLanes), ...emph])
     map.setFilter(LAYER_LANES_MISSING, ['all', ['==', ['get', 'measured'], false], ...emph])
     map.setFilter(LAYER_LANE_ARROWS, only ? EMPHASIZED : null)
-    map.setFilter(LAYER_ACTIVE, only ? EMPHASIZED : null)
-    map.setFilter(LAYER_CASING, only ? ['in', ['get', 'linkId'], ['literal', emphasizedIds]] : null)
+    map.setFilter(
+      LAYER_ACTIVE,
+      functional ? ['==', ['get', 'functional'], true] : only ? EMPHASIZED : null,
+    )
+    map.setFilter(
+      LAYER_CASING,
+      functional ? works : only ? ['in', ['get', 'linkId'], ['literal', emphasizedIds]] : null,
+    )
   }
 
   function tick(t: number) {

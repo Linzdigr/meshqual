@@ -13,6 +13,7 @@ const props = defineProps<{
   asymCount: number
   asymThreshold: number
   palette: SnrPalette
+  functionalCount: number
 }>()
 
 const emit = defineEmits<{
@@ -28,8 +29,9 @@ const palettes: { id: SnrPalette; label: string; hint: string }[] = [
 ]
 
 const modes: { id: ViewMode; label: string; hint: string }[] = [
-  { id: 'quality', label: 'Qualité', hint: 'Une ligne par lien, couleur du sens le plus faible' },
-  { id: 'asymmetry', label: 'Asymétrie', hint: 'Une voie par sens, chacune avec son propre SNR' },
+  { id: 'quality', label: 'Qualité', hint: 'Une ligne par lien, sens à plus faible SNR retenu.' },
+  { id: 'asymmetry', label: 'Asymétrie', hint: 'Une voie par sens, chacune avec son propre SNR médian.' },
+  { id: 'functional', label: 'Fonctionnel', hint: 'Liens considérés utilisables uniquement.' },
 ]
 
 const ramp = ['var(--snr-1)', 'var(--snr-2)', 'var(--snr-3)', 'var(--snr-4)']
@@ -42,15 +44,7 @@ const buckets = computed(() =>
     .reverse(),
 )
 
-const kindRows: { kind: LinkKind; label: string; hint: string }[] = [
-  { kind: 'measured', label: 'Mesurés', hint: "SNR relevé par l'observateur sur le dernier saut" },
-  { kind: 'trace', label: 'Trace', hint: 'SNR par saut, ajouté par chaque relais (paquets TRACE)' },
-  { kind: 'topology', label: 'Topologiques', hint: 'Sauts adjacents : aucune mesure de signal existe' },
-]
-
-function active(kind: LinkKind): boolean {
-  return props.kinds.includes(kind)
-}
+const topologyOn = computed(() => props.kinds.includes('topology'))
 </script>
 
 <template>
@@ -70,7 +64,19 @@ function active(kind: LinkKind): boolean {
       </button>
     </div>
 
-    <div class="block">
+    <div v-if="mode === 'functional'" class="block">
+      <h3>Liens fonctionnels</h3>
+      <p class="functional">
+        <span class="line" aria-hidden="true" />
+        <span>SNR ≥ {{ thresholds[1] }} dB dans le sens le plus faible</span>
+        <span class="mono count">{{ functionalCount }}</span>
+      </p>
+      <p class="caveat">
+        Les liens plus faibles et les liens topologiques, qui n'ont pas de mesure, sont masqués.
+      </p>
+    </div>
+
+    <div v-else class="block">
       <h3>{{ mode === 'asymmetry' ? 'SNR médian par sens' : 'SNR — sens le plus faible' }}</h3>
       <div class="palettes" role="radiogroup" aria-label="Palette SNR">
         <button
@@ -120,27 +126,27 @@ function active(kind: LinkKind): boolean {
       </p>
     </div>
 
-    <div class="block">
-      <h3>Type de lien</h3>
+    <!-- Measured and trace links are coloured by SNR above; only topology links
+         have a look of their own, so only they get a row (and a toggle). -->
+    <div v-if="mode !== 'functional'" class="block">
       <ul class="kinds">
-        <li v-for="row in kindRows" :key="row.kind">
+        <li>
           <button
             type="button"
-            :class="{ off: !active(row.kind) }"
-            :aria-pressed="active(row.kind)"
-            :title="row.hint"
-            @click="emit('toggle', row.kind)"
+            :class="{ off: !topologyOn }"
+            :aria-pressed="topologyOn"
+            title="Afficher ou masquer les liens sans mesure de signal"
+            @click="emit('toggle', 'topology')"
           >
-            <span class="mark" :class="row.kind" aria-hidden="true" />
-            <span class="label">{{ row.label }}</span>
-            <span class="mono count">{{ counts[row.kind] ?? 0 }}</span>
+            <span class="mark topology" aria-hidden="true" />
+            <span class="label">Liens topologiques</span>
+            <span class="mono count">{{ counts.topology ?? 0 }}</span>
           </button>
         </li>
       </ul>
       <p class="caveat">
         Un lien topologique prouve que les deux relais s'entendent, mais le champ
-        <code>path</code> ne transporte que des hashs de routage : aucun SNR n'existe pour ces
-        sauts.
+        <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
       </p>
     </div>
   </div>
@@ -234,16 +240,6 @@ ul {
   border-top-style: solid;
 }
 
-.mark.measured {
-  border-top-color: var(--kind-measured);
-  border-top-width: 3px;
-}
-
-.mark.trace {
-  border-top-color: var(--kind-trace);
-  border-top-width: 3px;
-}
-
 .mark.topology {
   border-top-color: var(--no-data);
   border-top-style: dashed;
@@ -256,7 +252,7 @@ ul {
 
 .modes {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   padding: 2px;
   background: var(--surface-2);
@@ -264,7 +260,7 @@ ul {
 }
 
 .modes button {
-  padding: 4px 8px;
+  padding: 4px 2px;
   background: none;
   border: 0;
   border-radius: 4px;
@@ -272,6 +268,20 @@ ul {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+}
+
+.functional {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.functional .line {
+  border-top: 3px solid var(--functional);
 }
 
 .palettes {

@@ -124,8 +124,7 @@ function snr(v: number | null): string {
         </ul>
         <p class="caveat">
           Calculé sur les {{ detail.graph.nodes }} nœuds et {{ detail.graph.links }} liens observés
-          ({{ detail.graph.communities }} groupes). Un chemin jamais entendu n'existe pas pour ce
-          calcul : un nœud peut sembler indispensable faute d'avoir vu les alternatives.
+          ({{ detail.graph.communities }} groupes). 
         </p>
       </section>
 

@@ -172,6 +172,7 @@ watch(
           :asym-count="store.asymmetricCount"
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
+          :functional-count="store.functionalCount"
           @toggle="onToggleKind"
           @set-mode="(m) => (store.viewMode = m)"
           @toggle-asym-only="store.asymOnly = !store.asymOnly"
