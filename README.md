@@ -99,7 +99,8 @@ docker compose up -d relayd    # reload relayd with its credentials
 ```
 
 It listens on `1884` (plain MQTT, credentials in clear text: keep it on your
-network) and on `127.0.0.1:9001` (WebSocket) for a TLS reverse proxy; see
+network) and on `127.0.0.1:9001` (WebSocket) for a TLS reverse proxy; set
+`MQTT_WS_BIND` and `MQTT_WS_PORT` in `.env` to change that address and port; see
 [deploy/nginx-mqtt.conf](deploy/nginx-mqtt.conf). Observers then use
 `wss://<host>:443/mqtt` with their account, for example on the observer
 firmware:

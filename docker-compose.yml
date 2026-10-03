@@ -27,8 +27,9 @@ services:
     ports:
       - "1884:1884"
       # WebSocket listener for a TLS reverse proxy (deploy/nginx-mqtt.conf). Loopback
-      # by default; set MQTT_WS_BIND to a LAN address when the proxy runs elsewhere.
-      - "${MQTT_WS_BIND:-127.0.0.1}:9001:9001"
+      # by default; set MQTT_WS_BIND to a LAN address when the proxy runs elsewhere,
+      # and MQTT_WS_PORT when 9001 is already taken on the host.
+      - "${MQTT_WS_BIND:-127.0.0.1}:${MQTT_WS_PORT:-9001}:9001"
     restart: unless-stopped
 
   relayd:
