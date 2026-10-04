@@ -16,6 +16,8 @@ const props = defineProps<{
   asymOnly: boolean
   asymThreshold: number
   palette: SnrPalette
+  /** Skip framing all nodes on first load: a shared link frames its own target. */
+  noAutoFit?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -54,7 +56,7 @@ onMounted(() => map.mount())
  */
 let autoFitted = false
 function autoFit(fc: FeatureCollection<NodeProperties>) {
-  if (autoFitted || fc.features.length < 2) return
+  if (props.noAutoFit || autoFitted || fc.features.length < 2) return
   let minLng = Infinity
   let minLat = Infinity
   let maxLng = -Infinity

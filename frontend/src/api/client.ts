@@ -5,6 +5,7 @@ import type {
   Health,
   HistoryBucket,
   LinkKind,
+  LinkDetail,
   LinkProperties,
   NodeDetail,
   NodeProperties,
@@ -71,6 +72,11 @@ export const api = {
     const bb = bboxParam(q.bbox ?? null)
     const qs = [bb, params.toString()].filter(Boolean).join('&')
     return get<FeatureCollection<LinkProperties>>(`/api/links?${qs}`, signal)
+  },
+
+  link: (linkId: string, signal?: AbortSignal) => {
+    const [a, b] = linkId.split(':')
+    return get<LinkDetail>(`/api/links/${a}/${b}`, signal)
   },
 
   frames: (linkId: string, limit = 10, signal?: AbortSignal) => {

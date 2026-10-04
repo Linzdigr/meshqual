@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Frame, HistoryBucket, LinkProperties } from '@/api/types'
 import FrameTable from './FrameTable.vue'
 import SnrSparkline from './SnrSparkline.vue'
+import ShareButton from './ShareButton.vue'
 import { formatDuration } from '@/utils/duration'
 
 const props = defineProps<{
@@ -57,9 +58,10 @@ function textWidth(text: string, el: HTMLElement): number {
  * Widens the panel so the "Sens" column shows both node names in full. It only
  * grows: a width the user dragged wider is kept. Run on opening a link (from the
  * header, before any frame is in) and again once frames arrive, since their
- * scrollbars eat into the column.
+ * scrollbars eat into the column. After a resize it measures again on the next
+ * frame, a few times at most, because widening can itself bring in a scrollbar.
  */
-async function fitToContent() {
+async function fitToContent(passes = 3) {
   await nextTick()
   const el = panelEl.value
   const l = props.link
@@ -77,7 +79,12 @@ async function fitToContent() {
     const b = l.bName || l.bKey.slice(0, 6)
     overflow = textWidth(`${a} → ${b}`, th) - available
   }
-  if (overflow > 0) width.value = clampWidth(width.value + overflow + 4)
+  if (overflow <= 0) return
+  const before = width.value
+  width.value = clampWidth(width.value + overflow + 4)
+  if (width.value > before && passes > 1) {
+    requestAnimationFrame(() => void fitToContent(passes - 1))
+  }
 }
 
 watch(
@@ -274,6 +281,7 @@ const tiles = computed(() => {
             </span>
           </p>
         </div>
+        <ShareButton :title="`${names.a} ↔ ${names.b} — MeshQual`" />
         <button class="close" type="button" aria-label="Fermer le panneau" @click="emit('close')">
           ✕
         </button>

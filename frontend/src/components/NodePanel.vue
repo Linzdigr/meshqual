@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { BackboneLevel, NodeDetail, NodeNeighbor } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
 import { formatDuration } from '@/utils/duration'
+import ShareButton from './ShareButton.vue'
 
 const props = defineProps<{
   nodeKey: string
@@ -72,6 +73,7 @@ function snr(v: number | null): string {
           </span>
         </p>
       </div>
+      <ShareButton :title="`${name} — MeshQual`" />
       <button class="close" type="button" aria-label="Fermer le panneau" @click="emit('close')">
         ✕
       </button>

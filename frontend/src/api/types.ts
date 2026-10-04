@@ -203,6 +203,14 @@ export interface Backbone {
   reasons: string[]
 }
 
+/** GET /api/links/{a}/{b}: the link and its two ends as the resolver knows them. */
+export interface LinkDetail {
+  link: { aKey: string; bKey: string; lastSeen: string }
+  a: { Key: string; Name: string; Latitude: number | null; Longitude: number | null }
+  b: { Key: string; Name: string; Latitude: number | null; Longitude: number | null }
+  distKm?: number
+}
+
 export interface NodeDetail {
   node: NodeInfo
   neighbors: NodeNeighbor[]

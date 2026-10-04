@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
+import { api } from '@/api/client'
 import type { BBox, LinkKind } from '@/api/types'
 import MeshMap from '@/components/MeshMap.vue'
 import SnrLegend from '@/components/SnrLegend.vue'
@@ -19,6 +20,66 @@ const mainEl = ref<HTMLElement | null>(null)
 const legendEl = ref<HTMLElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const meshMap = ref<InstanceType<typeof MeshMap> | null>(null)
+
+/**
+ * Shareable links. The URL carries the selection (?link=A:B or ?node=KEY) so
+ * the address bar, and the share button that copies it, always point at what is
+ * on screen. replaceState: selecting things should not pile up history entries.
+ */
+const initial = (() => {
+  const p = new URLSearchParams(window.location.search)
+  return { link: p.get('link'), node: p.get('node') }
+})()
+const deepLink = initial.link !== null || initial.node !== null
+
+// A notice the map refresh does not clear (it resets store.error on success).
+const notice = ref<string | null>(null)
+let noticeTimer: number | undefined
+function showNotice(text: string) {
+  notice.value = text
+  window.clearTimeout(noticeTimer)
+  noticeTimer = window.setTimeout(() => (notice.value = null), 12_000)
+}
+
+watch(
+  () => [store.selectedLinkId, store.selectedNodeKey] as const,
+  ([link, node]) => {
+    if (link || node) notice.value = null
+    const url = new URL(window.location.href)
+    url.searchParams.delete('link')
+    url.searchParams.delete('node')
+    if (link) url.searchParams.set('link', link)
+    else if (node) url.searchParams.set('node', node)
+    window.history.replaceState(window.history.state, '', url)
+  },
+)
+
+/**
+ * Opens the selection from the URL. A node frames itself once its detail loads
+ * (see the nodeDetail watcher). A link may lie outside the current map view, so
+ * its ends are fetched and framed first; the next refresh then brings the link
+ * itself, and its panel, into view.
+ */
+async function openDeepLink() {
+  if (initial.node) {
+    void store.selectNode(initial.node.toUpperCase())
+    return
+  }
+  if (!initial.link) return
+  const id = initial.link.toUpperCase()
+  try {
+    const d = await api.link(id)
+    const points: [number, number][] = []
+    for (const n of [d.a, d.b]) {
+      if (n.Latitude !== null && n.Longitude !== null) points.push([n.Longitude, n.Latitude])
+    }
+    void store.selectLink(id)
+    await nextTick()
+    if (points.length > 0) meshMap.value?.focusPoints(points, focusPadding())
+  } catch {
+    showNotice("Ce lien partagé n'a pas été entendu récemment : il n'est plus sur la carte.")
+  }
+}
 
 // Narrow screens fold the legend under its mode switch. It folds again when a
 // link or node is opened, so the panel docked at the bottom has the room.
@@ -50,6 +111,10 @@ function focusPadding() {
   if (r && r.width > 0) {
     if (r.width > m.width * 0.7) pad.bottom = m.bottom - r.top + gap
     else pad.right = m.right - r.left + gap
+  } else if (store.selectedLinkId || store.selectedNodeKey) {
+    // The panel is about to open (a shared link): keep its future place clear.
+    if (m.width <= 760) pad.bottom = m.height * 0.52 + gap
+    else pad.right = Math.min(460, m.width * 0.4) + gap
   }
   return pad
 }
@@ -124,6 +189,7 @@ function onToggleKind(kind: LinkKind) {
 onMounted(async () => {
   await store.loadConfig()
   await Promise.all([store.refreshLinks(), store.refreshHealth()])
+  await openDeepLink()
 
   // Health every 15s: it drives the source chips, not the map.
   fallback = window.setInterval(() => {
@@ -136,6 +202,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (debounce !== undefined) clearTimeout(debounce)
   if (fallback !== undefined) clearInterval(fallback)
+  window.clearTimeout(noticeTimer)
 })
 
 watch(
@@ -153,7 +220,7 @@ watch(
       :health="store.health"
       :stream-connected="stream.connected.value"
       :loading="store.loading"
-      :error="store.error"
+      :error="store.error ?? notice"
       :theme-mode="mode"
       @cycle-theme="cycle"
     />
@@ -171,6 +238,7 @@ watch(
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
+        :no-auto-fit="deepLink"
         @moveend="onMoveEnd"
         @select="(id) => store.selectLink(id)"
         @select-node="(key) => store.selectNode(key)"
