@@ -3,7 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>meshqual — qualité des liens MeshCore</title>
+    <title>MeshQual - Qualité des liens MeshCore</title>
+    <meta
+      name="description"
+      content="Carte en direct de la qualité des liens radio MeshCore : SNR mesuré par les observateurs, sens par sens, asymétrie et rôle de pont des nœuds."
+    />
+
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)" />
+
+    <!-- Link previews. Crawlers need absolute URLs: VITE_PUBLIC_URL is the site's
+         origin (e.g. https://meshqual.example.org), set at build time. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MeshQual" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:title" content="MeshQual - Qualité des liens MeshCore" />
+    <meta
+      property="og:description"
+      content="La qualité des liens radio MeshCore, en direct sur une carte : SNR par sens, asymétrie, rôle de pont des nœuds."
+    />
+    <meta property="og:url" content="%VITE_PUBLIC_URL%/" />
+    <meta property="og:image" content="%VITE_PUBLIC_URL%/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Logo MeshQual et un réseau de nœuds reliés par des liens colorés selon leur SNR"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="MeshQual - Qualité des liens MeshCore" />
+    <meta
+      name="twitter:description"
+      content="La qualité des liens radio MeshCore, en direct sur une carte : SNR par sens, asymétrie, rôle de pont des nœuds."
+    />
+    <meta name="twitter:image" content="%VITE_PUBLIC_URL%/og-image.png" />
   </head>
   <body>
     <div id="app"></div>

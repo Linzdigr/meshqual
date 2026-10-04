@@ -67,6 +67,7 @@ services:
       args:
         VITE_API_BASE: ${VITE_API_BASE:-}
         VITE_TILE_URL: ${VITE_TILE_URL:-}
+        VITE_PUBLIC_URL: ${VITE_PUBLIC_URL:-}
     depends_on:
       - relayd
     ports:

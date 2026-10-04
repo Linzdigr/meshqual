@@ -1,0 +1,15 @@
+{
+  "name": "MeshQual — Qualité des liens MeshCore",
+  "short_name": "MeshQual",
+  "description": "Carte en direct de la qualité des liens radio MeshCore, mesurée par les observateurs.",
+  "lang": "fr",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121211",
+  "theme_color": "#10233f",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

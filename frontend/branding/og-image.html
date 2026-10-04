@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  Source of public/og-image.png (1200x630). To regenerate, open this file in a
+  browser at exactly 1200x630 and screenshot it, e.g. with Playwright:
+  page.setViewportSize({ width: 1200, height: 630 }); page.screenshot(...)
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 1200px; height: 630px; overflow: hidden;
+    font-family: Inter, "DejaVu Sans", "Liberation Sans", sans-serif;
+    background: radial-gradient(circle at 78% 45%, #163259 0%, #0f1c30 45%, #0b1220 100%);
+    color: #ffffff;
+    position: relative;
+  }
+  .copy { position: absolute; left: 72px; top: 92px; width: 640px; }
+  .brand { display: flex; align-items: center; gap: 26px; }
+  .brand img { width: 104px; height: 104px; }
+  h1 { font-size: 84px; font-weight: 700; letter-spacing: -2px; }
+  .tag { margin-top: 40px; font-size: 35px; font-weight: 600; line-height: 1.2; }
+  .sub { margin-top: 18px; font-size: 25px; line-height: 1.4; color: #b8c4d6; }
+  .chips { position: absolute; left: 72px; bottom: 70px; display: flex; gap: 14px; }
+  .chip {
+    padding: 10px 20px; border-radius: 999px; font-size: 22px; font-weight: 600;
+    border: 2px solid rgba(183, 211, 246, 0.45); color: #dbe7f8; background: rgba(42, 120, 214, 0.14);
+  }
+  svg.mesh { position: absolute; right: 0; top: 0; }
+</style>
+</head>
+<body>
+  <!-- An illustration of the map, not real data: links coloured on the SNR ramp,
+       light = strong; dashed grey = topology links with no measurement. -->
+  <svg class="mesh" width="560" height="630" viewBox="0 0 560 630">
+    <g fill="none" stroke-linecap="round">
+      <g stroke="#9aa6b2" stroke-width="3" stroke-dasharray="8 9" opacity="0.55">
+        <path d="M120 120 L250 70"/><path d="M430 500 L520 410"/><path d="M90 470 L200 560"/>
+        <path d="M250 70 L420 110"/><path d="M330 560 L430 500"/>
+      </g>
+      <g stroke-width="7">
+        <path d="M120 120 L230 250" stroke="#b7d3f6"/>
+        <path d="M230 250 L400 220" stroke="#6da7ec"/>
+        <path d="M400 220 L420 110" stroke="#b7d3f6"/>
+        <path d="M230 250 L160 380" stroke="#2a78d6"/>
+        <path d="M160 380 L90 470" stroke="#6da7ec"/>
+        <path d="M160 380 L330 400" stroke="#b7d3f6"/>
+        <path d="M330 400 L400 220" stroke="#2a78d6"/>
+        <path d="M330 400 L430 500" stroke="#6da7ec"/>
+        <path d="M330 400 L330 560" stroke="#184f95"/>
+        <path d="M400 220 L520 300" stroke="#6da7ec"/>
+        <path d="M520 300 L520 410" stroke="#b7d3f6"/>
+        <path d="M430 500 L520 410" stroke="#2a78d6" opacity="0"/>
+      </g>
+    </g>
+    <g fill="#0f1c30" stroke="#ffffff" stroke-width="5">
+      <circle cx="120" cy="120" r="11"/><circle cx="250" cy="70" r="9"/><circle cx="420" cy="110" r="11"/>
+      <circle cx="230" cy="250" r="14"/><circle cx="400" cy="220" r="14"/><circle cx="160" cy="380" r="12"/>
+      <circle cx="90" cy="470" r="10"/><circle cx="330" cy="400" r="15"/><circle cx="430" cy="500" r="11"/>
+      <circle cx="330" cy="560" r="10"/><circle cx="520" cy="300" r="11"/><circle cx="520" cy="410" r="10"/>
+      <circle cx="200" cy="560" r="9"/>
+    </g>
+  </svg>
+
+  <div class="copy">
+    <div class="brand">
+      <img src="../public/favicon.svg" alt="">
+      <h1>MeshQual</h1>
+    </div>
+    <p class="tag">La qualité des liens radio MeshCore, en direct sur une carte</p>
+    <p class="sub">SNR mesuré par les observateurs, sens par sens, à partir des paquets réellement entendus.</p>
+  </div>
+  <div class="chips">
+    <span class="chip">SNR par sens</span>
+    <span class="chip">Asymétrie</span>
+    <span class="chip">Rôle de pont</span>
+  </div>
+</body>
+</html>
