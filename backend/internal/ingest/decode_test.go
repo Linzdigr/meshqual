@@ -399,3 +399,42 @@ func TestAdvertRecordsPathHashSize(t *testing.T) {
 		t.Errorf("a relayed message changed PathHashSize to %d", n.PathHashSize)
 	}
 }
+
+// A zero-hop advert is sent DIRECT with path_len 0, which reads as a 1-byte
+// width whatever the node's path.hash.mode: it must not overwrite what a flood
+// advert revealed. A flood advert heard before any relay (0 hops) still carries
+// the originator's width.
+func TestZeroHopAdvertDoesNotRevealHashSize(t *testing.T) {
+	r := NewResolver()
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(0x80 + i)
+	}
+	var payload []byte
+	payload = append(payload, pub...)
+	payload = binary.LittleEndian.AppendUint32(payload, 1789825821)
+	payload = append(payload, make([]byte, 64)...)
+	payload = append(payload, meshcore.AdvTypeRepeater|0x80)
+	payload = append(payload, []byte("rpt")...)
+	key := hexUp(pub)
+
+	flood := append([]byte{hdr(meshcore.RouteFlood, meshcore.PayloadAdvert), plen(0, 2)}, payload...)
+	zeroHop := append([]byte{hdr(meshcore.RouteDirect, meshcore.PayloadAdvert), 0x00}, payload...)
+
+	for _, raw := range [][]byte{flood, zeroHop} {
+		if _, err := Decode(source.Observation{Raw: raw, ReceivedAt: time.Now()}, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := r.Get(key); n.PathHashSize != 2 {
+		t.Errorf("PathHashSize = %d, want 2 from the flood advert, untouched by the zero-hop one", n.PathHashSize)
+	}
+
+	r2 := NewResolver()
+	if _, err := Decode(source.Observation{Raw: zeroHop, ReceivedAt: time.Now()}, r2); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := r2.Get(key); n.PathHashSize != 0 {
+		t.Errorf("a zero-hop advert alone gave PathHashSize = %d, want 0 (unknown)", n.PathHashSize)
+	}
+}

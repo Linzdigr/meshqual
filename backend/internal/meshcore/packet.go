@@ -173,6 +173,14 @@ func (p *Packet) HasTransportCodes() bool {
 // HashSize mirrors Packet::getPathHashSize(): (path_len >> 6) + 1.
 func (p *Packet) HashSize() int { return int(p.PathLenByte>>6) + 1 }
 
+// IsFlood reports a flood-routed packet. Only those carry the originator's path
+// hash width: a zero-hop packet is sent DIRECT with path_len 0, which reads as
+// a 1-byte width whatever the sender is configured for (Mesh::sendZeroHop).
+func (p *Packet) IsFlood() bool {
+	rt := p.RouteType()
+	return rt == RouteFlood || rt == RouteTransportFlood
+}
+
 // HopCount mirrors Packet::getPathHashCount(): path_len & 63.
 func (p *Packet) HopCount() int { return int(p.PathLenByte & 63) }
 

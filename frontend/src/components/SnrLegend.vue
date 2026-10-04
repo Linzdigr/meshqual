@@ -152,8 +152,8 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         <span class="mono count">{{ oneByteHashCount }}</span>
       </p>
       <p class="caveat">
-        Lu dans leurs annonces. Sur 1 octet, les hashs se confondent souvent : passer le nœud en
-        2 octets rend ses sauts attribuables.
+        Lu dans leurs annonces relayées. Sur 1 octet, les hashs se confondent souvent : passer le
+        nœud en 2 octets (<code>set path.hash.mode 1</code>) rend ses sauts attribuables.
       </p>
     </div>
 

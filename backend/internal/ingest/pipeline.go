@@ -148,7 +148,7 @@ func (p *Pipeline) handle(obs source.Observation) {
 		p.nodeBuf[k] = NodeUpsert{
 			Key: k, Name: d.Advert.Name, NodeType: d.Advert.NodeType,
 			Latitude: d.Advert.Latitude, Longitude: d.Advert.Longitude, AdvertTimestamp: &ts,
-			PathHashSize: uint8(d.Packet.HashSize()),
+			PathHashSize: AdvertHashSize(d.Packet),
 		}
 	}
 	full := len(p.sampleBuf) >= p.opt.FlushSize

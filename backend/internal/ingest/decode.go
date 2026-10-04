@@ -45,16 +45,14 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 
 	observer := strings.ToUpper(obs.ObserverKey)
 
-	// An ADVERT is the only passive source of identity and position. The node
-	// originated it, so its path hash width is that node's own setting:
-	// repeaters forwarding a flood keep the width the originator chose.
+	// An ADVERT is the only passive source of identity and position.
 	if pkt.PayloadType() == meshcore.PayloadAdvert {
 		if adv, err := pkt.DecodeAdvert(); err == nil {
 			d.Advert = adv
 			r.Upsert(Node{
 				Key: adv.PublicKeyHex(), Name: adv.Name, NodeType: adv.NodeType,
 				Latitude: adv.Latitude, Longitude: adv.Longitude,
-				PathHashSize: uint8(pkt.HashSize()),
+				PathHashSize: AdvertHashSize(pkt),
 			})
 		}
 	}
@@ -166,6 +164,17 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 	s.AKey, s.BKey, s.Forward = order(lastKey, observer)
 	d.Samples = append(d.Samples, s)
 	return d, nil
+}
+
+// AdvertHashSize is the path hash width an advert reveals about its originator,
+// or 0 when it reveals nothing. A flood advert is sent with the node's
+// path.hash.mode (+1), and relays keep that width. A zero-hop advert is sent
+// DIRECT with path_len 0, which would read as 1 byte whatever the setting.
+func AdvertHashSize(pkt *meshcore.Packet) uint8 {
+	if !pkt.IsFlood() {
+		return 0
+	}
+	return uint8(pkt.HashSize())
 }
 
 func order(from, to string) (a, b string, forward bool) {

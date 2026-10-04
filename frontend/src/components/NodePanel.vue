@@ -113,10 +113,10 @@ function snr(v: number | null): string {
           </span>
           <span class="t-hint">{{
             node?.pathHashSize === 1
-              ? 'collisions fréquentes : passer en 2 octets'
+              ? 'collisions fréquentes : set path.hash.mode 1 pour 2 octets'
               : node?.pathHashSize
-                ? 'lu dans ses annonces'
-                : 'aucune annonce reçue'
+                ? 'lu dans ses annonces relayées'
+                : 'aucune annonce relayée reçue'
           }}</span>
         </div>
         <div class="tile">
