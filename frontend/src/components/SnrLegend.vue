@@ -153,7 +153,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
       </p>
       <p class="caveat">
         Lu dans leurs annonces relayées. Sur 1 octet, les hashs se confondent souvent : passer le
-        nœud en 2 octets (<code>set path.hash.mode 1</code>) rend ses sauts attribuables.
+        nœud en 2 octets (<code>set path.hash.mode 1</code>) evite ces collisions.
       </p>
     </div>
 
