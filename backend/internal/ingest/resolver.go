@@ -16,6 +16,9 @@ type Node struct {
 	NodeType  uint8
 	Latitude  *float64
 	Longitude *float64
+	// PathHashSize is the path hash width (1..4 bytes) the node uses for packets
+	// it originates, read from its adverts; 0 until one is seen.
+	PathHashSize uint8
 }
 
 // HasPosition reports whether this node can be drawn on a map.
@@ -83,6 +86,9 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	}
 	if n.NodeType != 0 && n.NodeType != cur.NodeType {
 		cur.NodeType, changed = n.NodeType, true
+	}
+	if n.PathHashSize != 0 && n.PathHashSize != cur.PathHashSize {
+		cur.PathHashSize, changed = n.PathHashSize, true
 	}
 	// A node that has reported a position keeps it until it reports another one:
 	// adverts without the lat/lon flag must not erase a known location.

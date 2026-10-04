@@ -83,7 +83,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		for _, n := range nodes {
 			resolver.Upsert(ingest.Node{
 				Key: n.Key, Name: n.Name, NodeType: n.NodeType,
-				Latitude: n.Latitude, Longitude: n.Longitude,
+				Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 			})
 		}
 		log.Info("resolver warmed", "nodes", len(nodes))

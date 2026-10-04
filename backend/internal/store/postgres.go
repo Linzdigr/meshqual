@@ -111,24 +111,35 @@ func (p *Postgres) UpsertNodes(ctx context.Context, nodes []NodeRow) error {
 	batch := &pgx.Batch{}
 	for _, n := range nodes {
 		batch.Queue(`
-INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, first_seen, last_seen)
-VALUES ($1,$2,$3,$4,$5,$6, now(), now())
+INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_size, first_seen, last_seen)
+VALUES ($1,$2,$3,$4,$5,$6,$7, now(), now())
 ON CONFLICT (public_key) DO UPDATE SET
   name             = CASE WHEN excluded.name <> '' THEN excluded.name ELSE nodes.name END,
   node_type        = CASE WHEN excluded.node_type <> 0 THEN excluded.node_type ELSE nodes.node_type END,
   latitude         = COALESCE(excluded.latitude,  nodes.latitude),
   longitude        = COALESCE(excluded.longitude, nodes.longitude),
   advert_timestamp = GREATEST(COALESCE(excluded.advert_timestamp, 0), COALESCE(nodes.advert_timestamp, 0)),
+  path_hash_size   = COALESCE(excluded.path_hash_size, nodes.path_hash_size),
   last_seen        = now()`,
-			key(n.Key), n.Name, int16(n.NodeType), n.Latitude, n.Longitude, n.AdvertTimestamp)
+			key(n.Key), n.Name, int16(n.NodeType), n.Latitude, n.Longitude, n.AdvertTimestamp,
+			hashSize(n.PathHashSize))
 	}
 	return p.pool.SendBatch(ctx, batch).Close()
+}
+
+// hashSize maps "unknown" (0) to NULL, so an upsert never erases a known width.
+func hashSize(v uint8) *int16 {
+	if v == 0 {
+		return nil
+	}
+	s := int16(v)
+	return &s
 }
 
 // LoadNodes reads every node, used to warm the resolver at startup.
 func (p *Postgres) LoadNodes(ctx context.Context) ([]NodeRow, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, first_seen, last_seen
+SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_size, first_seen, last_seen
 FROM nodes`)
 	if err != nil {
 		return nil, err
@@ -140,13 +151,17 @@ FROM nodes`)
 		var (
 			pk       []byte
 			nodeType int16
+			hashSz   *int16
 			n        NodeRow
 		)
 		if err := rows.Scan(&pk, &n.Name, &nodeType, &n.Latitude, &n.Longitude,
-			&n.AdvertTimestamp, &n.FirstSeen, &n.LastSeen); err != nil {
+			&n.AdvertTimestamp, &hashSz, &n.FirstSeen, &n.LastSeen); err != nil {
 			return nil, err
 		}
 		n.Key, n.NodeType = hexUpper(pk), uint8(nodeType)
+		if hashSz != nil {
+			n.PathHashSize = uint8(*hashSz)
+		}
 		out = append(out, n)
 	}
 	return out, rows.Err()

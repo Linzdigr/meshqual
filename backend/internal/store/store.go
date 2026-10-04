@@ -21,6 +21,7 @@ type NodeRow struct {
 	Latitude        *float64
 	Longitude       *float64
 	AdvertTimestamp *int64
+	PathHashSize    uint8 // 0: unknown
 	FirstSeen       time.Time
 	LastSeen        time.Time
 }

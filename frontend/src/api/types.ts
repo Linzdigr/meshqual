@@ -50,6 +50,8 @@ export interface NodeProperties {
   key: string
   name: string
   nodeType: 'none' | 'companion' | 'repeater' | 'room' | 'sensor' | string
+  /** Path hash width (bytes) the node uses, from its adverts; absent until one is seen. */
+  pathHashSize?: number
 }
 
 export interface CollectionMeta {
@@ -171,6 +173,7 @@ export interface NodeInfo {
   nodeType: NodeProperties['nodeType']
   lat: number | null
   lon: number | null
+  pathHashSize?: number
 }
 
 export interface NodeNeighbor extends NodeInfo {

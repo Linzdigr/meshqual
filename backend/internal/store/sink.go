@@ -22,6 +22,7 @@ func (a Sink) UpsertNodes(ctx context.Context, nodes []ingest.NodeUpsert) error 
 		rows = append(rows, NodeRow{
 			Key: n.Key, Name: n.Name, NodeType: n.NodeType,
 			Latitude: n.Latitude, Longitude: n.Longitude, AdvertTimestamp: n.AdvertTimestamp,
+			PathHashSize: n.PathHashSize,
 		})
 	}
 	return a.S.UpsertNodes(ctx, rows)

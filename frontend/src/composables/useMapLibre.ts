@@ -31,6 +31,7 @@ const LAYER_ACTIVE = 'links-active-line'
 const LAYER_SELECTED = 'links-selected'
 const LAYER_NODES = 'nodes-circles'
 const LAYER_NODE_SELECTED = 'nodes-selected'
+const LAYER_NODE_WARN = 'nodes-hash-warn'
 const LAYER_NODE_LABELS = 'nodes-labels'
 
 /**
@@ -88,6 +89,37 @@ interface ActiveProperties {
 }
 
 const CHEVRON = 'chevron'
+const WARN = 'warn-1byte'
+
+/** Nodes still on 1-byte path hashes, the width that collides most. */
+const ONE_BYTE_HASH: ExpressionSpecification = ['==', ['get', 'pathHashSize'], 1]
+
+/**
+ * The ⚠ sign as an image: a yellow triangle with a dark "!". Drawn rather than
+ * set as text because the ⚠ character renders as an outline, a colour emoji or
+ * nothing at all depending on the fonts available. Matches the legend's icon.
+ */
+function warnImage(): ImageData {
+  const px = 28 // 14 CSS px at pixelRatio 2
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = px
+  const ctx = canvas.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  ctx.moveTo(14, 2.5)
+  ctx.lineTo(26, 24.5)
+  ctx.lineTo(2, 24.5)
+  ctx.closePath()
+  ctx.fillStyle = '#fab219'
+  ctx.strokeStyle = '#1a1a19'
+  ctx.lineWidth = 2.5
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = '#1a1a19'
+  ctx.fillRect(12.6, 9, 2.8, 8.5)
+  ctx.fillRect(12.6, 19.5, 2.8, 2.8)
+  return ctx.getImageData(0, 0, px, px)
+}
 
 /**
  * Width is driven by traffic on a log scale (`weight` = log10(samples+1)): a
@@ -424,6 +456,22 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'circle-stroke-color': dark ? '#ffffff' : '#0b0b0b',
       },
     },
+    // ⚠ beside nodes still on 1-byte path hashes. Offset to the upper right so
+    // the node circle keeps its size and stays clickable; above the selection
+    // ring so a selected node keeps its flag.
+    {
+      id: LAYER_NODE_WARN,
+      type: 'symbol' as const,
+      source: NODES_SOURCE,
+      filter: ONE_BYTE_HASH,
+      layout: {
+        'icon-image': WARN,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.75, 12, 1] as ExpressionSpecification,
+        'icon-offset': [11, -11] as [number, number],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    },
     {
       id: LAYER_NODE_LABELS,
       type: 'symbol' as const,
@@ -531,6 +579,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.on('load', () => {
       if (!map) return
       map.addImage(CHEVRON, chevronImage(), { pixelRatio: 2, sdf: true })
+      map.addImage(WARN, warnImage(), { pixelRatio: 2 })
       addDataLayers()
       ready = true
       applyView()
@@ -838,6 +887,7 @@ export function useMapLibre(opts: UseMapOptions) {
     const nodeOpacity = on ? ['case', inNodes, 1, NODE_FOCUS_DIM] : 1
     map.setPaintProperty(LAYER_NODES, 'circle-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_NODES, 'circle-stroke-opacity', nodeOpacity)
+    map.setPaintProperty(LAYER_NODE_WARN, 'icon-opacity', nodeOpacity)
     // Only focused nodes keep a label: other labels would compete for the space.
     map.setFilter(LAYER_NODE_LABELS, on ? inNodes : null)
   }
@@ -885,6 +935,7 @@ export function useMapLibre(opts: UseMapOptions) {
     for (const id of [
       LAYER_NODE_LABELS,
       LAYER_NODE_SELECTED,
+      LAYER_NODE_WARN,
       LAYER_NODES,
       LAYER_SELECTED,
       LAYER_ACTIVE,

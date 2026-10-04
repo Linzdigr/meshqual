@@ -78,11 +78,7 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		fc.Features = append(fc.Features, pointFeature(n.Key, [2]float64{*n.Longitude, *n.Latitude},
-			map[string]any{
-				"key":      n.Key,
-				"name":     n.Name,
-				"nodeType": meshcore.AdvTypeName(n.NodeType),
-			}))
+			nodeProps(n)))
 	}
 	fc.Meta = &Meta{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339), Total: len(nodes),
@@ -297,3 +293,17 @@ func toInt(v any) int {
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
+
+// nodeProps are a node's GeoJSON properties. pathHashSize is omitted until an
+// advert has revealed it.
+func nodeProps(n ingest.Node) map[string]any {
+	p := map[string]any{
+		"key":      n.Key,
+		"name":     n.Name,
+		"nodeType": meshcore.AdvTypeName(n.NodeType),
+	}
+	if n.PathHashSize != 0 {
+		p["pathHashSize"] = n.PathHashSize
+	}
+	return p
+}

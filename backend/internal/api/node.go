@@ -37,6 +37,8 @@ type nodeInfo struct {
 	NodeType  string   `json:"nodeType"`
 	Latitude  *float64 `json:"lat"`
 	Longitude *float64 `json:"lon"`
+	// PathHashSize is 0 (omitted) until an advert has revealed it.
+	PathHashSize uint8 `json:"pathHashSize,omitempty"`
 }
 
 type neighbor struct {
@@ -146,6 +148,6 @@ func (s *Server) info(key string) nodeInfo {
 	n, _ := s.d.Resolver.Get(key)
 	return nodeInfo{
 		Key: key, Name: n.Name, NodeType: meshcore.AdvTypeName(n.NodeType),
-		Latitude: n.Latitude, Longitude: n.Longitude,
+		Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 	}
 }

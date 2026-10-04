@@ -26,6 +26,7 @@ type NodeUpsert struct {
 	Latitude        *float64
 	Longitude       *float64
 	AdvertTimestamp *int64
+	PathHashSize    uint8
 }
 
 // PipelineOptions configures the pipeline.
@@ -147,6 +148,7 @@ func (p *Pipeline) handle(obs source.Observation) {
 		p.nodeBuf[k] = NodeUpsert{
 			Key: k, Name: d.Advert.Name, NodeType: d.Advert.NodeType,
 			Latitude: d.Advert.Latitude, Longitude: d.Advert.Longitude, AdvertTimestamp: &ts,
+			PathHashSize: uint8(d.Packet.HashSize()),
 		}
 	}
 	full := len(p.sampleBuf) >= p.opt.FlushSize

@@ -4,6 +4,7 @@ import type { BackboneLevel, NodeDetail, NodeNeighbor } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
 import { formatDuration } from '@/utils/duration'
 import ShareButton from './ShareButton.vue'
+import WarnIcon from './WarnIcon.vue'
 
 const props = defineProps<{
   nodeKey: string
@@ -103,6 +104,20 @@ function snr(v: number | null): string {
         <div class="tile">
           <span class="t-label">Position</span>
           <span class="t-value mono small">{{ position() }}</span>
+        </div>
+        <div class="tile">
+          <span class="t-label">Hash de chemin</span>
+          <span class="t-value mono small">
+            <WarnIcon v-if="node?.pathHashSize === 1" />
+            {{ node?.pathHashSize ? `${node.pathHashSize} octet${node.pathHashSize > 1 ? 's' : ''}` : '—' }}
+          </span>
+          <span class="t-hint">{{
+            node?.pathHashSize === 1
+              ? 'collisions fréquentes : passer en 2 octets'
+              : node?.pathHashSize
+                ? 'lu dans ses annonces'
+                : 'aucune annonce reçue'
+          }}</span>
         </div>
         <div class="tile">
           <span class="t-label">Clé</span>

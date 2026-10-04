@@ -45,13 +45,16 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 
 	observer := strings.ToUpper(obs.ObserverKey)
 
-	// An ADVERT is the only passive source of identity and position.
+	// An ADVERT is the only passive source of identity and position. The node
+	// originated it, so its path hash width is that node's own setting:
+	// repeaters forwarding a flood keep the width the originator chose.
 	if pkt.PayloadType() == meshcore.PayloadAdvert {
 		if adv, err := pkt.DecodeAdvert(); err == nil {
 			d.Advert = adv
 			r.Upsert(Node{
 				Key: adv.PublicKeyHex(), Name: adv.Name, NodeType: adv.NodeType,
 				Latitude: adv.Latitude, Longitude: adv.Longitude,
+				PathHashSize: uint8(pkt.HashSize()),
 			})
 		}
 	}

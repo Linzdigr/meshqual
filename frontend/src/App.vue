@@ -255,6 +255,7 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
+          :one-byte-hash-count="store.oneByteHashCount"
           v-model:open="legendOpen"
           @toggle="onToggleKind"
           @set-mode="(m) => (store.viewMode = m)"

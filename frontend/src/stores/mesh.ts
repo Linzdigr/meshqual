@@ -98,6 +98,10 @@ export const useMeshStore = defineStore('mesh', () => {
     const t = snrThresholds.value[1] ?? -5
     return links.value.features.filter((f) => (f.properties.snrQuality ?? -Infinity) >= t).length
   })
+  /** Nodes in view whose adverts show 1-byte path hashes (flagged ⚠ on the map). */
+  const oneByteHashCount = computed(
+    () => nodes.value.features.filter((f) => f.properties.pathHashSize === 1).length,
+  )
   const asymmetricCount = computed(
     () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
   )
@@ -249,6 +253,7 @@ export const useMeshStore = defineStore('mesh', () => {
     asymmetryThresholdDb,
     asymmetricCount,
     functionalCount,
+    oneByteHashCount,
     loading,
     error,
     lastRefresh,

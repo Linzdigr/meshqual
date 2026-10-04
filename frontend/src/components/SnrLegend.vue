@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { snrBuckets, type SnrPalette } from '@/styles/scale'
 import type { LinkKind } from '@/api/types'
 import type { ViewMode } from '@/map/lanes'
+import WarnIcon from './WarnIcon.vue'
 
 const props = defineProps<{
   thresholds: number[]
@@ -14,6 +15,7 @@ const props = defineProps<{
   asymThreshold: number
   palette: SnrPalette
   functionalCount: number
+  oneByteHashCount: number
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
 }>()
@@ -143,7 +145,19 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         </p>
       </div>
 
-      <!-- Measured and trace links are coloured by SNR above; only topology links
+      <div class="block">
+      <p class="hashwarn" title="Ces nœuds émettent des hashs de chemin sur 1 octet : 256 valeurs seulement, d'où des collisions qui empêchent d'attribuer les sauts.">
+        <WarnIcon />
+        <span>Nœud en hash de chemin 1 octet</span>
+        <span class="mono count">{{ oneByteHashCount }}</span>
+      </p>
+      <p class="caveat">
+        Lu dans leurs annonces. Sur 1 octet, les hashs se confondent souvent : passer le nœud en
+        2 octets rend ses sauts attribuables.
+      </p>
+    </div>
+
+    <!-- Measured and trace links are coloured by SNR above; only topology links
            have a look of their own, so only they get a row (and a toggle). -->
       <div v-if="mode !== 'functional'" class="block">
         <ul class="kinds">
@@ -353,6 +367,20 @@ ul {
 
 .functional .line {
   border-top: 3px solid var(--functional);
+}
+
+.hashwarn {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.hashwarn .warn {
+  justify-self: center;
 }
 
 .palettes {

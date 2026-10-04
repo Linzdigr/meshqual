@@ -358,3 +358,44 @@ func TestDistantHopIsNotALink(t *testing.T) {
 		t.Errorf("with MaxHopKm=0 got %d samples, want 2", len(d.Samples))
 	}
 }
+
+// An advert carries the path hash width its originator uses: the resolver
+// keeps it per node, and a later advert with another width replaces it.
+func TestAdvertRecordsPathHashSize(t *testing.T) {
+	r := NewResolver()
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(0x40 + i)
+	}
+	advert := func(width int) []byte {
+		var payload []byte
+		payload = append(payload, pub...)
+		payload = binary.LittleEndian.AppendUint32(payload, 1789825821)
+		payload = append(payload, make([]byte, 64)...)
+		payload = append(payload, meshcore.AdvTypeRepeater|0x80)
+		payload = append(payload, []byte("rpt")...)
+		// One relay already in the path, at the advertiser's width.
+		raw := []byte{hdr(meshcore.RouteFlood, meshcore.PayloadAdvert), plen(1, width)}
+		raw = append(raw, make([]byte, width)...)
+		return append(raw, payload...)
+	}
+	key := hexUp(pub)
+
+	for _, width := range []int{1, 2} {
+		if _, err := Decode(source.Observation{Raw: advert(width), ReceivedAt: time.Now()}, r); err != nil {
+			t.Fatalf("width %d: %v", width, err)
+		}
+		n, _ := r.Get(key)
+		if int(n.PathHashSize) != width {
+			t.Errorf("after a %d-byte advert, PathHashSize = %d", width, n.PathHashSize)
+		}
+	}
+
+	// A path hash on a non-advert packet says nothing about any one node.
+	if _, err := Decode(source.Observation{Raw: buildFlood([]string{key}, 3, meshcore.PayloadGrpTxt, []byte("x")), ReceivedAt: time.Now()}, r); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := r.Get(key); n.PathHashSize != 2 {
+		t.Errorf("a relayed message changed PathHashSize to %d", n.PathHashSize)
+	}
+}
