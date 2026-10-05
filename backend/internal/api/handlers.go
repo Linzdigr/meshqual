@@ -70,6 +70,9 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 	fc := newCollection(len(nodes))
 	noPos := 0
 	for _, n := range nodes {
+		if s.d.NodeMaxAge > 0 && time.Since(n.LastHeard) > s.d.NodeMaxAge {
+			continue // silent too long: off the map, still known for resolution
+		}
 		if !n.HasPosition() {
 			noPos++
 			continue

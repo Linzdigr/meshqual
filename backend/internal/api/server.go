@@ -34,8 +34,10 @@ type Deps struct {
 	FramesMax    int
 	// AsymmetryThresholdDb is passed to the UI for its asymmetry view.
 	AsymmetryThresholdDb float64
-	Version              string
-	StartedAt            time.Time
+	// NodeMaxAge hides nodes not heard for longer from /api/nodes. 0 disables.
+	NodeMaxAge time.Duration
+	Version    string
+	StartedAt  time.Time
 }
 
 // Server holds the router.

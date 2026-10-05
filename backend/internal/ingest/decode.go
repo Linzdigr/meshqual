@@ -44,6 +44,8 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 	d := &Decoded{Packet: pkt, WireHash: strings.ToUpper(hex.EncodeToString(sum[:8]))}
 
 	observer := strings.ToUpper(obs.ObserverKey)
+	// An observer publishing is itself alive.
+	r.Touch(observer, obs.ReceivedAt)
 
 	// An ADVERT is the only passive source of identity and position.
 	if pkt.PayloadType() == meshcore.PayloadAdvert {
@@ -53,6 +55,7 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 				Key: adv.PublicKeyHex(), Name: adv.Name, NodeType: adv.NodeType,
 				Latitude: adv.Latitude, Longitude: adv.Longitude,
 				PathHashSize: AdvertHashSize(pkt),
+				LastHeard:    obs.ReceivedAt,
 			})
 		}
 	}
@@ -74,6 +77,9 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		keys := make([]Resolution, len(tr.Hops))
 		for i, h := range tr.Hops {
 			keys[i] = r.Resolve(h.Hash)
+			if keys[i].Resolved() {
+				r.Touch(keys[i].Key, obs.ReceivedAt)
+			}
 			d.HopsTotal++
 			switch {
 			case keys[i].Ambiguous:
@@ -107,6 +113,10 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 	res := make([]Resolution, len(hops))
 	for i, h := range hops {
 		res[i] = r.Resolve(h)
+		// A relay named unambiguously in the path was heard relaying.
+		if res[i].Resolved() {
+			r.Touch(res[i].Key, obs.ReceivedAt)
+		}
 		d.HopsTotal++
 		switch {
 		case res[i].Ambiguous:

@@ -294,14 +294,13 @@ function activeColor(dark: boolean, thresholds: readonly number[], palette: SnrP
 }
 
 /**
- * The "Fonctionnel" view keeps links whose weaker direction reaches the usable
- * bucket (the second threshold, -5 dB by default). Links with no SNR fail it.
+ * The "Fonctionnel" view: both directions measured, the weaker at the usable
+ * threshold or above. Same rule as isFunctional in map/lanes.ts.
  */
 function functionalFilter(thresholds: readonly number[]): ExpressionSpecification {
-  // Same rule as isFunctional in map/lanes.ts: both directions measured.
   return [
     'all',
-    ['==', ['get', 'snrBasis'], 'both'],
+    ['in', ['get', 'snrBasis'], ['literal', ['both', 'few']]],
     ['>=', ['coalesce', ['get', 'snrQuality'], -1000], thresholds[1] ?? -5],
   ]
 }

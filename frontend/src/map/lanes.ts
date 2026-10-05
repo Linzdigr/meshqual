@@ -20,13 +20,17 @@ export function laneId(linkId: string, forward: boolean): string {
 }
 
 /**
- * Usable both ways: each direction is measured and the weaker one reaches the
- * usable bucket (the second SNR threshold, -5 dB by default). A link measured
- * one way only says nothing about the way back, so it does not qualify.
- * Mirrored as a MapLibre filter by functionalFilter in useMapLibre.ts.
+ * Usable both ways: each direction has at least one measurement and the weaker
+ * one (snrQuality, the lower of the two medians) reaches the usable bucket (the
+ * second SNR threshold, -5 dB by default). A link measured one way only says
+ * nothing about the way back, so it does not qualify. Mirrored as a MapLibre
+ * filter by functionalFilter in useMapLibre.ts.
  */
 export function isFunctional(p: LinkProperties, thresholds: readonly number[]): boolean {
-  return p.snrBasis === 'both' && (p.snrQuality ?? -Infinity) >= (thresholds[1] ?? -5)
+  return (
+    (p.snrBasis === 'both' || p.snrBasis === 'few') &&
+    (p.snrQuality ?? -Infinity) >= (thresholds[1] ?? -5)
+  )
 }
 
 /** Both directions are measured and their medians differ by at least `thresholdDb`. */

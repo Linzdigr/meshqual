@@ -162,7 +162,7 @@ interface Tile {
 const basisHint: Record<string, string> = {
   both: 'le plus faible des deux sens',
   oneWay: 'un seul sens mesuré',
-  few: 'peu de mesures : médiane globale',
+  few: 'le plus faible des deux sens, peu de mesures',
 }
 
 function directionTile(

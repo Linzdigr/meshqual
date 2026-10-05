@@ -20,6 +20,7 @@
   ],
 
   "liveWindow": "24h",
+  "nodeMaxAge": "48h",
   "framesPerLink": 20,
   "snrSamplesPerLink": 256,
   "maxHopKm": 300,

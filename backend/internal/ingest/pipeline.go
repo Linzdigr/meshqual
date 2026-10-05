@@ -242,6 +242,10 @@ func (p *Pipeline) WarmFromSamples(samples []Sample) (dropped int) {
 			dropped++
 			continue
 		}
+		// Both ends and the observer were heard when the sample was taken.
+		for _, k := range []string{samples[i].AKey, samples[i].BKey, samples[i].ObserverKey} {
+			p.Resolver.Touch(k, samples[i].At)
+		}
 		p.Aggregator.Add(&Decoded{Samples: []Sample{samples[i]}})
 	}
 	p.Aggregator.TakeDirty() // a warm-up is not a change to push

@@ -84,6 +84,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 			resolver.Upsert(ingest.Node{
 				Key: n.Key, Name: n.Name, NodeType: n.NodeType,
 				Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
+				LastHeard: n.LastSeen,
 			})
 		}
 		log.Info("resolver warmed", "nodes", len(nodes))
@@ -139,6 +140,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		CORSOrigins: cfg.CORSOrigins, PushInterval: cfg.PushInterval.D(),
 		LiveWindow: cfg.LiveWindow.D(), FramesMax: cfg.FramesPerLink,
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
+		NodeMaxAge:           cfg.NodeMaxAge.D(),
 		Version:              version, StartedAt: time.Now().UTC(),
 	})
 

@@ -4,6 +4,7 @@ package ingest
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yvanferez/meshqual/backend/internal/geo"
 	"github.com/yvanferez/meshqual/backend/internal/meshcore"
@@ -19,6 +20,10 @@ type Node struct {
 	// PathHashSize is the path hash width (1..4 bytes) the node uses for packets
 	// it originates, read from its adverts; 0 until one is seen.
 	PathHashSize uint8
+	// LastHeard is the last time the node was heard: an advert from it, a path
+	// that unambiguously names it as a relay, or a packet it observed. The map
+	// hides nodes silent for too long (see api Deps.NodeMaxAge).
+	LastHeard time.Time
 }
 
 // HasPosition reports whether this node can be drawn on a map.
@@ -90,6 +95,10 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	if n.PathHashSize != 0 && n.PathHashSize != cur.PathHashSize {
 		cur.PathHashSize, changed = n.PathHashSize, true
 	}
+	// Not a change to persist: the database keeps its own last_seen.
+	if n.LastHeard.After(cur.LastHeard) {
+		cur.LastHeard = n.LastHeard
+	}
 	// A node that has reported a position keeps it until it reports another one:
 	// adverts without the lat/lon flag must not erase a known location.
 	if n.Latitude != nil && n.Longitude != nil {
@@ -150,6 +159,19 @@ func (r *Resolver) Plausible(a, b string) bool {
 		return true
 	}
 	return geo.HaversineKm(*na.Latitude, *na.Longitude, *nb.Latitude, *nb.Longitude) <= r.MaxHopKm
+}
+
+// Touch records that a known node was heard at `at`. Unknown keys are ignored:
+// a node exists only once an advert has introduced it.
+func (r *Resolver) Touch(key string, at time.Time) {
+	if key == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n := r.nodes[strings.ToUpper(key)]; n != nil && at.After(n.LastHeard) {
+		n.LastHeard = at
+	}
 }
 
 // Get returns a copy of a node by key.

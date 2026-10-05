@@ -28,6 +28,9 @@ type Config struct {
 
 	// LiveWindow is how long a link stays on the map after its last sample.
 	LiveWindow Duration `json:"liveWindow"`
+	// NodeMaxAge hides from the map nodes not heard for this long. They stay
+	// known to the resolver, which still needs them to read paths. 0 disables.
+	NodeMaxAge Duration `json:"nodeMaxAge"`
 	// FramesPerLink is how many recent frames the detail panel can show.
 	FramesPerLink int `json:"framesPerLink"`
 	// SNRSamplesPerLink bounds the sample ring the exact percentiles come from.
@@ -87,6 +90,7 @@ func Default() Config {
 	return Config{
 		Addr:                 ":8080",
 		LiveWindow:           Duration(24 * time.Hour),
+		NodeMaxAge:           Duration(48 * time.Hour),
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,
 		MaxHopKm:             300,

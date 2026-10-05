@@ -159,30 +159,29 @@ func TestQualityIsTheWeakerDirection(t *testing.T) {
 	}
 }
 
-func TestQualityIgnoresThinDirection(t *testing.T) {
+func TestQualityKeepsAThinWeakDirection(t *testing.T) {
 	ag := NewAggregator(10, 256, time.Hour)
 	now := time.Now().UTC()
-	addN(ag, "A", "B", 10, 5, now)
-	addN(ag, "B", "A", -15, 2, now) // below MinDirectionSamples (3)
+	addN(ag, "A", "B", 12, 5, now)
+	addN(ag, "B", "A", -9.5, 2, now) // below MinDirectionSamples (3), still measured
 
 	v, _ := ag.Get(LinkID{A: "A", B: "B"})
-	if v.Quality == nil || *v.Quality != 10 || v.SNRBasis != "oneWay" {
-		t.Errorf("quality = %v basis %q, want 10 oneWay", v.Quality, v.SNRBasis)
+	// Pooling would give a median near +12 and hide the failing direction.
+	if v.Quality == nil || *v.Quality != -9.5 || v.SNRBasis != "few" {
+		t.Errorf("quality = %v basis %q, want -9.5 with basis few", v.Quality, v.SNRBasis)
 	}
 	if v.Delta != nil {
-		t.Errorf("delta = %v, want nil: B->A is too thin to compare", *v.Delta)
+		t.Errorf("delta = %v, want nil: too few samples to compare directions", *v.Delta)
 	}
 }
 
-func TestQualityFallsBackToPooledMedian(t *testing.T) {
+func TestQualityOneWay(t *testing.T) {
 	ag := NewAggregator(10, 256, time.Hour)
-	now := time.Now().UTC()
-	addN(ag, "A", "B", 4, 2, now)
-	addN(ag, "B", "A", 0, 1, now)
+	addN(ag, "A", "B", 4, 2, time.Now().UTC())
 
 	v, _ := ag.Get(LinkID{A: "A", B: "B"})
-	if v.Quality == nil || *v.Quality != 4 || v.SNRBasis != "few" {
-		t.Errorf("quality = %v basis %q, want pooled median 4 with basis few", v.Quality, v.SNRBasis)
+	if v.Quality == nil || *v.Quality != 4 || v.SNRBasis != "oneWay" {
+		t.Errorf("quality = %v basis %q, want 4 oneWay", v.Quality, v.SNRBasis)
 	}
 }
 

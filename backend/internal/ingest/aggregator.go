@@ -294,12 +294,12 @@ type LinkView struct {
 	// Per direction of transmission: AB is what B measured hearing A.
 	SNRAB *SNRStats `json:"snrAB"`
 	SNRBA *SNRStats `json:"snrBA"`
-	// Quality is the lower of the two direction medians among the directions
-	// with enough samples (see SNRBasis). Nil when the link has no SNR at all.
+	// Quality is the lower of the two direction medians, or the one measured
+	// direction's median. Nil when the link has no SNR at all.
 	Quality *float64 `json:"snrQuality"`
-	// SNRBasis says what Quality rests on: "both" directions, "oneWay" (only
-	// one direction has enough samples) or "few" (neither does, so Quality is
-	// the median of everything).
+	// SNRBasis says what Quality rests on: "both" directions with enough
+	// samples each, "few" (both measured, at least one thinly: same rule, lower
+	// confidence) or "oneWay" (only one direction measured).
 	SNRBasis string `json:"snrBasis,omitempty"`
 	// Delta is median A->B minus median B->A, set only when SNRBasis is "both".
 	Delta     *float64       `json:"snrDelta"`
@@ -332,7 +332,9 @@ func (st *LinkState) view(minDir int) LinkView {
 
 // quality picks the link's SNR: the weaker direction, since a link is only as
 // usable as its worse half (replies and acks travel the other way). Medians,
-// not raw minima, so a single fade does not condemn a link for good.
+// not raw minima, so a single fade does not condemn a link for good. Directions
+// are never pooled: that would let a strong direction hide a failing one.
+// minDir only grades confidence ("few") and gates the asymmetry delta.
 func quality(all, ab, ba *SNRStats, minDir int) (q *float64, basis string, delta *float64) {
 	if all == nil {
 		return nil, "", nil
@@ -340,22 +342,24 @@ func quality(all, ab, ba *SNRStats, minDir int) (q *float64, basis string, delta
 	if minDir < 1 {
 		minDir = 1
 	}
-	okAB := ab != nil && ab.Count >= minDir
-	okBA := ba != nil && ba.Count >= minDir
+	hasAB := ab != nil && ab.Count > 0
+	hasBA := ba != nil && ba.Count > 0
 	switch {
-	case okAB && okBA:
+	case hasAB && hasBA:
 		m := math.Min(ab.Median, ba.Median)
-		d := round2(ab.Median - ba.Median)
-		return &m, "both", &d
-	case okAB:
+		if ab.Count >= minDir && ba.Count >= minDir {
+			d := round2(ab.Median - ba.Median)
+			return &m, "both", &d
+		}
+		return &m, "few", nil
+	case hasAB:
 		m := ab.Median
 		return &m, "oneWay", nil
-	case okBA:
+	case hasBA:
 		m := ba.Median
 		return &m, "oneWay", nil
 	default:
-		m := all.Median
-		return &m, "few", nil
+		return nil, "", nil
 	}
 }
 

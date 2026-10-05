@@ -59,9 +59,14 @@ describe('isFunctional', () => {
     expect(isFunctional(link({ snrBasis: 'both', snrQuality: -5.25 }).properties, T)).toBe(false)
   })
 
-  it('rejects a strong link measured one way only, or with too few samples', () => {
+  it('counts both directions measured even with few samples each', () => {
+    // FR35-LAILLE-02 ↔ FR35-RENNES-COLOMBIER: 1.2 and 6.8 dB, 2 samples each.
+    expect(isFunctional(link({ snrBasis: 'few', snrQuality: 1.2 }).properties, T)).toBe(true)
+  })
+
+  it('rejects a strong link measured one way only, and links with no SNR', () => {
     expect(isFunctional(link({ snrBasis: 'oneWay', snrQuality: 12 }).properties, T)).toBe(false)
-    expect(isFunctional(link({ snrBasis: 'few', snrQuality: 12 }).properties, T)).toBe(false)
     expect(isFunctional(link({ kind: 'topology' }).properties, T)).toBe(false)
   })
 })
+
