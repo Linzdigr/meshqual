@@ -155,8 +155,7 @@ function fmt(at: string): string {
     </div>
   </figure>
   <p v-else class="empty">
-    Pas encore d'historique : il faut une base Timescale configurée et au moins deux intervalles
-    de mesures.
+    Pas encore d'historique : il faut au moins 24h et  deux intervalles de mesures.
   </p>
 </template>
 

@@ -15,7 +15,7 @@ import type {
   ServerConfig,
 } from '@/api/types'
 import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
-import { isAsymmetric, type ViewMode } from '@/map/lanes'
+import { isAsymmetric, isFunctional, type ViewMode } from '@/map/lanes'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
 
@@ -94,10 +94,9 @@ export const useMeshStore = defineStore('mesh', () => {
   const pushIntervalMs = computed(() => config.value?.pushIntervalMs ?? 2000)
   const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
   /** Links shown by the "Fonctionnel" view: weaker direction at or above the usable threshold. */
-  const functionalCount = computed(() => {
-    const t = snrThresholds.value[1] ?? -5
-    return links.value.features.filter((f) => (f.properties.snrQuality ?? -Infinity) >= t).length
-  })
+  const functionalCount = computed(
+    () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
+  )
   /** Nodes in view whose adverts show 1-byte path hashes (flagged ⚠ on the map). */
   const oneByteHashCount = computed(
     () => nodes.value.features.filter((f) => f.properties.pathHashSize === 1).length,

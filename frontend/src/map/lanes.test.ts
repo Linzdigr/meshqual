@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Feature, FeatureCollection, LinkProperties } from '@/api/types'
-import { buildLanes, isAsymmetric, laneId } from './lanes'
+import { buildLanes, isAsymmetric, isFunctional, laneId } from './lanes'
 
 function link(p: Partial<LinkProperties>): Feature<LinkProperties> {
   return {
@@ -49,5 +49,19 @@ describe('buildLanes', () => {
     expect(isAsymmetric(sym.properties, 6)).toBe(false)
     expect(isAsymmetric(oneWay.properties, 6)).toBe(false)
     expect(buildLanes(fc(asym), 6).features.every((f) => f.properties.emphasized)).toBe(true)
+  })
+})
+
+describe('isFunctional', () => {
+  const T = [-12, -5, 5]
+  it('needs both directions measured, the weaker at the usable threshold or above', () => {
+    expect(isFunctional(link({ snrBasis: 'both', snrQuality: -5 }).properties, T)).toBe(true)
+    expect(isFunctional(link({ snrBasis: 'both', snrQuality: -5.25 }).properties, T)).toBe(false)
+  })
+
+  it('rejects a strong link measured one way only, or with too few samples', () => {
+    expect(isFunctional(link({ snrBasis: 'oneWay', snrQuality: 12 }).properties, T)).toBe(false)
+    expect(isFunctional(link({ snrBasis: 'few', snrQuality: 12 }).properties, T)).toBe(false)
+    expect(isFunctional(link({ kind: 'topology' }).properties, T)).toBe(false)
   })
 })

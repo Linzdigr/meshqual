@@ -12,7 +12,7 @@ import {
   snrStepExpression,
   type SnrPalette,
 } from '@/styles/scale'
-import { buildLanes, isAsymmetric, laneId, type ViewMode } from '@/map/lanes'
+import { buildLanes, isAsymmetric, isFunctional, laneId, type ViewMode } from '@/map/lanes'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
@@ -298,7 +298,12 @@ function activeColor(dark: boolean, thresholds: readonly number[], palette: SnrP
  * bucket (the second threshold, -5 dB by default). Links with no SNR fail it.
  */
 function functionalFilter(thresholds: readonly number[]): ExpressionSpecification {
-  return ['>=', ['coalesce', ['get', 'snrQuality'], -1000], thresholds[1] ?? -5]
+  // Same rule as isFunctional in map/lanes.ts: both directions measured.
+  return [
+    'all',
+    ['==', ['get', 'snrBasis'], 'both'],
+    ['>=', ['coalesce', ['get', 'snrQuality'], -1000], thresholds[1] ?? -5],
+  ]
 }
 
 function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
@@ -694,7 +699,7 @@ export function useMapLibre(opts: UseMapOptions) {
             laneId: laneId(p.linkId, p.lastForward),
             lanes: p.kind !== 'topology',
             emphasized: isAsymmetric(p, opts.asymThreshold.value),
-            functional: (p.snrQuality ?? -Infinity) >= (opts.thresholds.value[1] ?? -5),
+            functional: isFunctional(p, opts.thresholds.value),
             weight: p.weight,
             ...(snr !== undefined && { snrActive: snr }),
           },

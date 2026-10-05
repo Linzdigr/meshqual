@@ -87,11 +87,12 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         <h3>Liens fonctionnels</h3>
         <p class="functional">
           <span class="line" aria-hidden="true" />
-          <span>SNR ≥ {{ thresholds[1] }} dB dans le sens le plus faible</span>
+          <span>Les deux sens mesurés, chacun ≥ {{ thresholds[1] }} dB</span>
           <span class="mono count">{{ functionalCount }}</span>
         </p>
         <p class="caveat">
-          Les liens plus faibles et les liens topologiques, qui n'ont pas de mesure, sont masqués.
+          Masqués : les liens plus faibles, ceux mesurés dans un seul sens (rien ne dit que le
+          retour passe) et les liens topologiques, sans mesure.
         </p>
       </div>
 

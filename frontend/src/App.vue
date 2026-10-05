@@ -281,7 +281,6 @@ watch(
           :history="store.history"
           :thresholds="store.snrThresholds"
           :asym-threshold="store.asymmetryThresholdDb"
-          :live="stream.connected.value"
           @close="store.selectLink(null)"
         />
       </div>

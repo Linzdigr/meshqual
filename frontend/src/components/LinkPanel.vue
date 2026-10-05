@@ -12,10 +12,12 @@ const props = defineProps<{
   history: HistoryBucket[]
   thresholds: number[]
   asymThreshold: number
-  live: boolean
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/** A link heard within this long is shown as active (the server's live window). */
+const ACTIVE_LINK_SEC = 24 * 3600
 
 /**
  * Panel width, dragged from the left edge (the panel is anchored to the right).
@@ -276,8 +278,8 @@ const tiles = computed(() => {
           <p class="sub">
             <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
             <span class="mono">vu il y a {{ formatDuration(link.ageSec) }}</span>
-            <span v-if="live" class="live">
-              <i aria-hidden="true" />flux actif
+            <span v-if="link.ageSec < ACTIVE_LINK_SEC" class="live">
+              <i aria-hidden="true" />lien actif
             </span>
           </p>
         </div>
