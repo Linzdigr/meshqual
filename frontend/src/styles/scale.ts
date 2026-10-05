@@ -48,6 +48,12 @@ function rampOf(dark: boolean, palette: SnrPalette): readonly string[] {
 export const FUNCTIONAL_LIGHT = '#4f97ea'
 export const FUNCTIONAL_DARK = '#9cc6f5'
 
+/** The two ends of a selected link, as in the panel (--node-a / --node-b). */
+export const NODE_A_LIGHT = '#b45309'
+export const NODE_B_LIGHT = '#be185d'
+export const NODE_A_DARK = '#fbbf24'
+export const NODE_B_DARK = '#f472b6'
+
 /** No measurement exists for a topology link, so it gets ink, not a 5th ramp step. */
 export const NO_DATA_LIGHT = '#52514e'
 export const NO_DATA_DARK = '#c3c2b7'

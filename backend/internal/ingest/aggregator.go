@@ -63,6 +63,9 @@ type LinkState struct {
 	snrABPos, snrBAPos int
 	rssi               []float64
 	rssiP              int
+	// RSSI split the same way: what the receiver of each direction measured.
+	rssiAB, rssiBA       []float64
+	rssiABPos, rssiBAPos int
 
 	frames   []Frame // bounded ring, newest last
 	framePos int
@@ -157,7 +160,13 @@ func (a *Aggregator) Add(d *Decoded) {
 			}
 		}
 		if s.RSSI != nil {
-			st.rssi, st.rssiP = pushRing(st.rssi, st.rssiP, float64(*s.RSSI), a.maxSNR)
+			r := float64(*s.RSSI)
+			st.rssi, st.rssiP = pushRing(st.rssi, st.rssiP, r, a.maxSNR)
+			if s.Forward {
+				st.rssiAB, st.rssiABPos = pushRing(st.rssiAB, st.rssiABPos, r, a.maxSNR)
+			} else {
+				st.rssiBA, st.rssiBAPos = pushRing(st.rssiBA, st.rssiBAPos, r, a.maxSNR)
+			}
 		}
 		st.frames, st.framePos = pushFrame(st.frames, st.framePos, Frame{
 			At: s.At, Kind: s.Kind.String(), Forward: s.Forward,
@@ -302,9 +311,12 @@ type LinkView struct {
 	// confidence) or "oneWay" (only one direction measured).
 	SNRBasis string `json:"snrBasis,omitempty"`
 	// Delta is median A->B minus median B->A, set only when SNRBasis is "both".
-	Delta     *float64       `json:"snrDelta"`
-	RSSIMean  *float64       `json:"rssiMean"`
-	Observers map[string]int `json:"observers"`
+	Delta    *float64 `json:"snrDelta"`
+	RSSIMean *float64 `json:"rssiMean"`
+	// Mean RSSI per direction, like SNRAB / SNRBA.
+	RSSIMeanAB *float64       `json:"rssiMeanAB"`
+	RSSIMeanBA *float64       `json:"rssiMeanBA"`
+	Observers  map[string]int `json:"observers"`
 }
 
 func (st *LinkState) view(minDir int) LinkView {
@@ -323,10 +335,7 @@ func (st *LinkState) view(minDir int) LinkView {
 	}
 	v.SNRAB, v.SNRBA = stats(st.snrAB), stats(st.snrBA)
 	v.Quality, v.SNRBasis, v.Delta = quality(v.SNR, v.SNRAB, v.SNRBA, minDir)
-	if len(st.rssi) > 0 {
-		m := mean(st.rssi)
-		v.RSSIMean = &m
-	}
+	v.RSSIMean, v.RSSIMeanAB, v.RSSIMeanBA = meanOf(st.rssi), meanOf(st.rssiAB), meanOf(st.rssiBA)
 	return v
 }
 
@@ -361,6 +370,14 @@ func quality(all, ab, ba *SNRStats, minDir int) (q *float64, basis string, delta
 	default:
 		return nil, "", nil
 	}
+}
+
+func meanOf(vals []float64) *float64 {
+	if len(vals) == 0 {
+		return nil
+	}
+	m := mean(vals)
+	return &m
 }
 
 func stats(vals []float64) *SNRStats {

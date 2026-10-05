@@ -108,8 +108,9 @@ func (p *Packet) DecodeAdvert() (*Advert, error) {
 		lat := float64(int32(binary.LittleEndian.Uint32(app[i:]))) / 1e6
 		lon := float64(int32(binary.LittleEndian.Uint32(app[i+4:]))) / 1e6
 		i += 8
-		// 0,0 is the firmware's "unset" value, not a position in the Gulf of Guinea.
-		if lat != 0 || lon != 0 {
+		// 0,0 is the firmware's "unset" value, not a position in the Gulf of
+		// Guinea. Out-of-range values come from corrupted packets.
+		if (lat != 0 || lon != 0) && ValidPosition(lat, lon) {
 			a.Latitude, a.Longitude = &lat, &lon
 		}
 	}
@@ -150,4 +151,9 @@ func indexByte(b []byte, c byte) int {
 		}
 	}
 	return -1
+}
+
+// ValidPosition reports a latitude/longitude pair inside the globe's bounds.
+func ValidPosition(lat, lon float64) bool {
+	return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 }

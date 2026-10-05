@@ -1,10 +1,14 @@
 import maplibregl, { type ExpressionSpecification, type Map as MlMap, type StyleSpecification } from 'maplibre-gl'
 import { onScopeDispose, type Ref } from 'vue'
-import type { LineString } from 'geojson'
+import type { LineString, Point } from 'geojson'
 import type { BBox, Feature, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import {
   FUNCTIONAL_DARK,
   FUNCTIONAL_LIGHT,
+  NODE_A_DARK,
+  NODE_A_LIGHT,
+  NODE_B_DARK,
+  NODE_B_LIGHT,
   NO_DATA_DARK,
   NO_DATA_LIGHT,
   SURFACE_DARK,
@@ -20,6 +24,8 @@ export const NODES_SOURCE = 'nodes'
 export const ACTIVE_SOURCE = 'links-active'
 /** One lane per direction of each link, for the asymmetry view (see map/lanes.ts). */
 export const LANES_SOURCE = 'lanes'
+/** The selected link's per-direction readings, one line feature per direction. */
+export const FOCUS_LABELS_SOURCE = 'focus-labels'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
@@ -33,6 +39,7 @@ const LAYER_NODES = 'nodes-circles'
 const LAYER_NODE_SELECTED = 'nodes-selected'
 const LAYER_NODE_WARN = 'nodes-hash-warn'
 const LAYER_NODE_LABELS = 'nodes-labels'
+const LAYER_FOCUS_LABELS = 'focus-labels'
 
 /**
  * Tile source. OpenStreetMap's own tiles carry a usage policy that forbids
@@ -222,6 +229,21 @@ const EMPHASIZED: ExpressionSpecification = ['==', ['get', 'emphasized'], true]
 const FOCUS_DIM = 0.07
 const NODE_FOCUS_DIM = 0.25
 
+/**
+ * On-screen angle of the segment a → b in degrees, clockwise as text-rotate
+ * expects, folded into (-90, 90] so text along it reads left to right. The map
+ * never rotates or tilts, so Web Mercator alone gives the angle at any zoom.
+ */
+function screenAngle(a: [number, number], b: [number, number]): number {
+  const y = (lat: number) => -Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))
+  const dx = ((b[0] - a[0]) * Math.PI) / 180
+  const dy = y(b[1]) - y(a[1])
+  let deg = (Math.atan2(dy, dx) * 180) / Math.PI
+  if (deg > 90) deg -= 180
+  if (deg <= -90) deg += 180
+  return deg
+}
+
 /** A right-pointing chevron in white, used as an SDF icon tinted per theme. */
 function chevronImage(): ImageData {
   const px = 20 // 10 CSS px at pixelRatio 2
@@ -259,6 +281,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [NODES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
     },
     layers: [
       {
@@ -495,6 +518,36 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-halo-width': 1.4,
       },
     },
+    // The selected link's SNR and RSSI, one label per direction in the sender's
+    // colour, at the link's midpoint, turned along it and pushed to either side.
+    // Point placement rather than along the line, which drops any label longer
+    // than the line itself.
+    {
+      id: LAYER_FOCUS_LABELS,
+      type: 'symbol' as const,
+      source: FOCUS_LABELS_SOURCE,
+      layout: {
+        'text-field': ['get', 'text'] as ExpressionSpecification,
+        'text-size': 12,
+        // One line each: wrapped, the two labels would run into each other.
+        'text-max-width': 60,
+        'text-rotation-alignment': 'map' as const,
+        'text-rotate': ['get', 'angle'] as ExpressionSpecification,
+        'text-offset': [
+          'case',
+          ['<', ['get', 'side'], 0],
+          ['literal', [0, -1.1]],
+          ['literal', [0, 1.1]],
+        ] as unknown as ExpressionSpecification,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': ['get', 'color'] as ExpressionSpecification,
+        'text-halo-color': surface,
+        'text-halo-width': 2,
+      },
+    },
   ]
 }
 
@@ -664,6 +717,8 @@ export function useMapLibre(opts: UseMapOptions) {
     emphasizedIds = fc.features
       .filter((f) => isAsymmetric(f.properties, threshold))
       .map((f) => f.properties.linkId)
+    // Fresh readings for the selected link's labels.
+    if (selectedLink) updateFocusLabels()
     // A refresh can bring in more of a selected node's links (after a zoom out).
     if (selectedNode) {
       computeFocus()
@@ -839,6 +894,7 @@ export function useMapLibre(opts: UseMapOptions) {
   function highlight(linkId: string | null) {
     selectedLink = linkId
     computeFocus()
+    updateFocusLabels()
     if (!map || !map.getLayer(LAYER_SELECTED)) return
     map.setFilter(LAYER_SELECTED, ['==', ['get', 'linkId'], linkId ?? '__none__'])
     applyFocus()
@@ -873,6 +929,61 @@ export function useMapLibre(opts: UseMapOptions) {
         focusNodes.push(aKey === key ? bKey : aKey)
       }
     }
+  }
+
+  /**
+   * Two labels for the selected link, "A » B : 12.5 dB · -96 dBm" (or "non
+   * mesuré"), coloured like the sender in the panel's direction tiles. "»"
+   * rather than "→": the map's glyph server has no arrow glyph. Both sit
+   * at the midpoint, rotated along the link and kept readable left to right,
+   * A → B on one side and B → A on the other.
+   */
+  function updateFocusLabels() {
+    if (!map || !ready) return
+    const src = map.getSource(FOCUS_LABELS_SOURCE)
+    if (!src || !('setData' in src)) return
+    const f = selectedLink ? findLink(selectedLink) : undefined
+    const features: Feature<{ text: string; color: string; angle: number; side: number }, Point>[] = []
+    if (f && f.geometry.type === 'LineString') {
+      const p = f.properties
+      const dark = opts.dark.value
+      const short = (s: string, key: string) => {
+        const n = s || key.slice(0, 8)
+        return n.length > 16 ? `${n.slice(0, 15)}…` : n
+      }
+      const a = short(p.aName, p.aKey)
+      const b = short(p.bName, p.bKey)
+      const reading = (snr?: number, count?: number, rssi?: number) =>
+        snr === undefined || !count
+          ? 'non mesuré'
+          : `${snr.toFixed(1)} dB${rssi === undefined ? '' : ` · ${Math.round(rssi)} dBm`}`
+      const [pa, pb] = f.geometry.coordinates as [number[], number[]]
+      const mid = [(pa[0]! + pb[0]!) / 2, (pa[1]! + pb[1]!) / 2]
+      const angle = screenAngle(pa as [number, number], pb as [number, number])
+      features.push(
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: mid },
+          properties: {
+            text: `${a} » ${b} : ${reading(p.snrMedianAB, p.snrCountAB, p.rssiMeanAB)}`,
+            color: dark ? NODE_A_DARK : NODE_A_LIGHT,
+            angle,
+            side: -1,
+          },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: mid },
+          properties: {
+            text: `${b} » ${a} : ${reading(p.snrMedianBA, p.snrCountBA, p.rssiMeanBA)}`,
+            color: dark ? NODE_B_DARK : NODE_B_LIGHT,
+            angle,
+            side: 1,
+          },
+        },
+      )
+    }
+    ;(src as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features } as never)
   }
 
   function findLink(linkId: string) {
@@ -937,6 +1048,7 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_FOCUS_LABELS,
       LAYER_NODE_LABELS,
       LAYER_NODE_SELECTED,
       LAYER_NODE_WARN,
@@ -958,6 +1070,7 @@ export function useMapLibre(opts: UseMapOptions) {
     addDataLayers()
     applyView()
     applyFocus()
+    updateFocusLabels()
     syncActive()
   }
 

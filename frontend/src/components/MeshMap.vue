@@ -63,7 +63,8 @@ function autoFit(fc: FeatureCollection<NodeProperties>) {
   let maxLat = -Infinity
   for (const f of fc.features) {
     const c = (f.geometry as { coordinates?: [number, number] }).coordinates
-    if (!c) continue
+    // A bad position would make fitBounds throw and leave the view unframed.
+    if (!c || Math.abs(c[1]) > 90 || Math.abs(c[0]) > 180) continue
     minLng = Math.min(minLng, c[0])
     maxLng = Math.max(maxLng, c[0])
     minLat = Math.min(minLat, c[1])

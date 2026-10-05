@@ -465,3 +465,15 @@ func TestDecodeRecordsWhenNodesWereHeard(t *testing.T) {
 		t.Error("Touch created an unknown node")
 	}
 }
+
+func TestResolverDropsImpossiblePositions(t *testing.T) {
+	r := NewResolver()
+	r.Upsert(Node{Key: pk(0x31), Latitude: f64(1988.49), Longitude: f64(-1845.19)})
+	if n, _ := r.Get(pk(0x31)); n.HasPosition() {
+		t.Errorf("kept an impossible position: %v, %v", *n.Latitude, *n.Longitude)
+	}
+	r.Upsert(Node{Key: pk(0x32), Latitude: f64(48.1), Longitude: f64(-1.6)})
+	if n, _ := r.Get(pk(0x32)); !n.HasPosition() {
+		t.Error("dropped a valid position")
+	}
+}

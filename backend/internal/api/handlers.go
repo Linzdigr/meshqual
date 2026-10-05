@@ -187,6 +187,12 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		if l.RSSIMean != nil {
 			props["rssiMean"] = round2(*l.RSSIMean)
 		}
+		if l.RSSIMeanAB != nil {
+			props["rssiMeanAB"] = round2(*l.RSSIMeanAB)
+		}
+		if l.RSSIMeanBA != nil {
+			props["rssiMeanBA"] = round2(*l.RSSIMeanBA)
+		}
 		fc.Features = append(fc.Features, lineFeature(l.ID.String(), pa, pb, props))
 	}
 

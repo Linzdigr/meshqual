@@ -73,6 +73,10 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	if key == "" {
 		return nil, false
 	}
+	// Positions stored before adverts were range-checked may be garbage.
+	if n.Latitude != nil && n.Longitude != nil && !meshcore.ValidPosition(*n.Latitude, *n.Longitude) {
+		n.Latitude, n.Longitude = nil, nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

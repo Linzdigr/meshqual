@@ -42,6 +42,9 @@ export interface LinkProperties {
   /** Median A → B minus median B → A, only when snrBasis is 'both'. */
   snrDelta?: number
   rssiMean?: number
+  /** Mean RSSI per direction, like snrMedianAB / snrMedianBA. */
+  rssiMeanAB?: number
+  rssiMeanBA?: number
 }
 
 export type SnrBasis = 'both' | 'oneWay' | 'few'

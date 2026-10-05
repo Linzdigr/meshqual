@@ -76,6 +76,7 @@ async function openDeepLink() {
     void store.selectLink(id)
     await nextTick()
     if (points.length > 0) meshMap.value?.focusPoints(points, focusPadding())
+    lastFocusAt = Date.now()
   } catch {
     showNotice("Ce lien partagé n'a pas été entendu récemment : il n'est plus sur la carte.")
   }
@@ -124,10 +125,29 @@ watch(
   () => store.selectedLinkId,
   async (id) => {
     if (!id) return
+    lastFocusAt = Date.now()
     await nextTick()
     requestAnimationFrame(() => meshMap.value?.focus(id, focusPadding()))
   },
 )
+
+/**
+ * The link panel settles its width after opening (it widens to fit node names,
+ * and with a shared link it only appears once the link is loaded). Reframe when
+ * that happens shortly after a selection, so the link is not left under it. A
+ * later resize is the user's doing and leaves the view alone.
+ */
+let lastFocusAt = 0
+const REFOCUS_WINDOW_MS = 4000
+const panelObserver = new ResizeObserver(() => {
+  const id = store.selectedLinkId
+  if (!id || Date.now() - lastFocusAt > REFOCUS_WINDOW_MS) return
+  meshMap.value?.focus(id, focusPadding())
+})
+watch(panelEl, (el, old) => {
+  if (old) panelObserver.unobserve(old)
+  if (el) panelObserver.observe(el)
+})
 
 // Frame a selected node with its neighbours once their positions are known.
 watch(
@@ -203,6 +223,7 @@ onUnmounted(() => {
   if (debounce !== undefined) clearTimeout(debounce)
   if (fallback !== undefined) clearInterval(fallback)
   window.clearTimeout(noticeTimer)
+  panelObserver.disconnect()
 })
 
 watch(

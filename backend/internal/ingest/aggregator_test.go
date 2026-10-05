@@ -193,3 +193,24 @@ func TestNoSNRMeansNoQuality(t *testing.T) {
 		t.Errorf("topology-only link got SNR fields: %+v", v)
 	}
 }
+
+func TestRSSIIsSplitByDirection(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	add := func(from, to string, rssi int) {
+		s := sampleAt(from, to, KindMeasured, f64(1), now)
+		s.RSSI = &rssi
+		ag.Add(&Decoded{Samples: []Sample{s}})
+	}
+	add("A", "B", -90)
+	add("A", "B", -94)
+	add("B", "A", -110)
+
+	v, _ := ag.Get(LinkID{A: "A", B: "B"})
+	if v.RSSIMeanAB == nil || *v.RSSIMeanAB != -92 {
+		t.Errorf("RSSIMeanAB = %v, want -92", v.RSSIMeanAB)
+	}
+	if v.RSSIMeanBA == nil || *v.RSSIMeanBA != -110 {
+		t.Errorf("RSSIMeanBA = %v, want -110", v.RSSIMeanBA)
+	}
+}
