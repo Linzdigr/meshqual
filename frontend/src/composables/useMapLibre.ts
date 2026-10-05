@@ -230,9 +230,10 @@ const FOCUS_DIM = 0.07
 const NODE_FOCUS_DIM = 0.25
 
 /**
- * On-screen angle of the segment a → b in degrees, clockwise as text-rotate
- * expects, folded into (-90, 90] so text along it reads left to right. The map
- * never rotates or tilts, so Web Mercator alone gives the angle at any zoom.
+ * On-screen angle of the segment a → b in degrees, clockwise (screen y points
+ * down), folded into (-90, 90] so the A → B label always takes the upper side.
+ * The map never rotates or tilts, so Web Mercator alone gives the angle at any
+ * zoom.
  */
 function screenAngle(a: [number, number], b: [number, number]): number {
   const y = (lat: number) => -Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))
@@ -242,6 +243,30 @@ function screenAngle(a: [number, number], b: [number, number]): number {
   if (deg > 90) deg -= 180
   if (deg <= -90) deg += 180
   return deg
+}
+
+interface FocusLabel {
+  text: string
+  color: string
+  anchor: string
+  offset: [number, number]
+}
+
+/**
+ * Where an upright label sits beside a link drawn at `angle` degrees: pushed
+ * along the link's normal to one side (side -1 or 1), and anchored by the edge
+ * facing the link, so it clears the line whatever its angle and the text's
+ * length. Offsets are in ems, screen axes (y down).
+ */
+function focusSide(angle: number, side: -1 | 1): Pick<FocusLabel, 'anchor' | 'offset'> {
+  const rad = (angle * Math.PI) / 180
+  // side 1: the normal pointing up (screen y down), for the A → B label.
+  const nx = Math.sin(rad) * side
+  const ny = -Math.cos(rad) * side
+  const v = ny < -0.38 ? 'bottom' : ny > 0.38 ? 'top' : ''
+  const h = nx > 0.38 ? 'left' : nx < -0.38 ? 'right' : ''
+  const anchor = v && h ? `${v}-${h}` : v || h || 'center'
+  return { anchor, offset: [nx * 0.7, ny * 0.7] }
 }
 
 /** A right-pointing chevron in white, used as an SDF icon tinted per theme. */
@@ -518,27 +543,21 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-halo-width': 1.4,
       },
     },
-    // The selected link's SNR and RSSI, one label per direction in the sender's
-    // colour, at the link's midpoint, turned along it and pushed to either side.
-    // Point placement rather than along the line, which drops any label longer
-    // than the line itself.
+    // The selected link's SNR and RSSI, one upright label per direction in the
+    // sender's colour, at the link's midpoint on either side of it (focusSide).
+    // Asymmetry view only (see applyView): the others show one value per link.
     {
       id: LAYER_FOCUS_LABELS,
       type: 'symbol' as const,
       source: FOCUS_LABELS_SOURCE,
       layout: {
         'text-field': ['get', 'text'] as ExpressionSpecification,
-        'text-size': 12,
+        'text-size': 12.5,
         // One line each: wrapped, the two labels would run into each other.
         'text-max-width': 60,
-        'text-rotation-alignment': 'map' as const,
-        'text-rotate': ['get', 'angle'] as ExpressionSpecification,
-        'text-offset': [
-          'case',
-          ['<', ['get', 'side'], 0],
-          ['literal', [0, -1.1]],
-          ['literal', [0, 1.1]],
-        ] as unknown as ExpressionSpecification,
+        visibility: 'none' as const,
+        'text-anchor': ['get', 'anchor'] as ExpressionSpecification,
+        'text-offset': ['get', 'offset'] as ExpressionSpecification,
         'text-allow-overlap': true,
         'text-ignore-placement': true,
       },
@@ -794,6 +813,7 @@ export function useMapLibre(opts: UseMapOptions) {
     show(LAYER_LANES, asym)
     show(LAYER_LANES_MISSING, asym)
     show(LAYER_LANE_ARROWS, asym)
+    show(LAYER_FOCUS_LABELS, asym)
     // Topology links have no SNR, so they can never be shown as working.
     show(LAYER_TOPOLOGY, !only && !functional)
     const dark = opts.dark.value
@@ -932,53 +952,44 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   /**
-   * Two labels for the selected link, "A » B : 12.5 dB · -96 dBm" (or "non
-   * mesuré"), coloured like the sender in the panel's direction tiles. "»"
-   * rather than "→": the map's glyph server has no arrow glyph. Both sit
-   * at the midpoint, rotated along the link and kept readable left to right,
-   * A → B on one side and B → A on the other.
+   * Two labels for the selected link, "12.5 dB · -96 dBm" (or "non mesuré"),
+   * coloured like the sender in the panel's direction tiles: A → B on one side
+   * of the link, B → A on the other. Directions known only from TRACE packets
+   * have no RSSI: only an observer's radio reports one.
    */
   function updateFocusLabels() {
     if (!map || !ready) return
     const src = map.getSource(FOCUS_LABELS_SOURCE)
     if (!src || !('setData' in src)) return
     const f = selectedLink ? findLink(selectedLink) : undefined
-    const features: Feature<{ text: string; color: string; angle: number; side: number }, Point>[] = []
+    const features: Feature<FocusLabel, Point>[] = []
     if (f && f.geometry.type === 'LineString') {
       const p = f.properties
       const dark = opts.dark.value
-      const short = (s: string, key: string) => {
-        const n = s || key.slice(0, 8)
-        return n.length > 16 ? `${n.slice(0, 15)}…` : n
-      }
-      const a = short(p.aName, p.aKey)
-      const b = short(p.bName, p.bKey)
       const reading = (snr?: number, count?: number, rssi?: number) =>
         snr === undefined || !count
           ? 'non mesuré'
           : `${snr.toFixed(1)} dB${rssi === undefined ? '' : ` · ${Math.round(rssi)} dBm`}`
-      const [pa, pb] = f.geometry.coordinates as [number[], number[]]
-      const mid = [(pa[0]! + pb[0]!) / 2, (pa[1]! + pb[1]!) / 2]
-      const angle = screenAngle(pa as [number, number], pb as [number, number])
+      const [pa, pb] = f.geometry.coordinates as [[number, number], [number, number]]
+      const mid = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2]
+      const angle = screenAngle(pa, pb)
       features.push(
         {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: mid },
           properties: {
-            text: `${a} » ${b} : ${reading(p.snrMedianAB, p.snrCountAB, p.rssiMeanAB)}`,
+            text: reading(p.snrMedianAB, p.snrCountAB, p.rssiMeanAB),
             color: dark ? NODE_A_DARK : NODE_A_LIGHT,
-            angle,
-            side: -1,
+            ...focusSide(angle, 1),
           },
         },
         {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: mid },
           properties: {
-            text: `${b} » ${a} : ${reading(p.snrMedianBA, p.snrCountBA, p.rssiMeanBA)}`,
+            text: reading(p.snrMedianBA, p.snrCountBA, p.rssiMeanBA),
             color: dark ? NODE_B_DARK : NODE_B_LIGHT,
-            angle,
-            side: 1,
+            ...focusSide(angle, -1),
           },
         },
       )
