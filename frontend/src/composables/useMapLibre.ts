@@ -879,6 +879,13 @@ export function useMapLibre(opts: UseMapOptions) {
       LAYER_CASING,
       functional ? works : only ? ['in', ['get', 'linkId'], ['literal', emphasizedIds]] : null,
     )
+    // The selection halo follows the view too: a link the view hides must not
+    // come back as an outline because it happens to be selected.
+    map.setFilter(LAYER_SELECTED, [
+      'all',
+      ['==', ['get', 'linkId'], selectedLink ?? '__none__'],
+      ...(functional ? [works] : []),
+    ])
   }
 
   function tick(t: number) {
@@ -916,7 +923,7 @@ export function useMapLibre(opts: UseMapOptions) {
     computeFocus()
     updateFocusLabels()
     if (!map || !map.getLayer(LAYER_SELECTED)) return
-    map.setFilter(LAYER_SELECTED, ['==', ['get', 'linkId'], linkId ?? '__none__'])
+    applyFilters()
     applyFocus()
   }
 
