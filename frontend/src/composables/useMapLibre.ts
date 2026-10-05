@@ -570,14 +570,15 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
   ]
 }
 
-/** Unfocused opacity per link layer. Symmetric lanes recede so asymmetric ones stand out. */
+/** Unfocused opacity per link layer. Every lane at full strength: the "Liens
+ * déséquilibrés seulement" filter is what singles out unbalanced links. */
 const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base: unknown }[] = [
   { layer: LAYER_CASING, prop: 'line-opacity', base: 0.85 },
   { layer: LAYER_TOPOLOGY, prop: 'line-opacity', base: 0.45 },
   { layer: LAYER_MEASURED, prop: 'line-opacity', base: 0.95 },
-  { layer: LAYER_LANES_MISSING, prop: 'line-opacity', base: ['case', EMPHASIZED, 0.9, 0.4] },
-  { layer: LAYER_LANES, prop: 'line-opacity', base: ['case', EMPHASIZED, 1, 0.4] },
-  { layer: LAYER_LANE_ARROWS, prop: 'icon-opacity', base: ['case', EMPHASIZED, 1, 0.5] },
+  { layer: LAYER_LANES_MISSING, prop: 'line-opacity', base: 0.9 },
+  { layer: LAYER_LANES, prop: 'line-opacity', base: 1 },
+  { layer: LAYER_LANE_ARROWS, prop: 'icon-opacity', base: 1 },
   { layer: LAYER_ACTIVE, prop: 'line-opacity', base: 1 },
 ]
 

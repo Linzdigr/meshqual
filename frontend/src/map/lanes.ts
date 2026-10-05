@@ -11,7 +11,7 @@ export interface LaneProperties {
   /** Median SNR of this direction; absent when the direction was never measured. */
   snr?: number
   measured: boolean
-  /** The link is asymmetric beyond the threshold: drawn at full opacity. */
+  /** The link is unbalanced beyond the threshold (kept by "déséquilibrés seulement"). */
   emphasized: boolean
 }
 

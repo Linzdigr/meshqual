@@ -142,7 +142,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         </label>
         <p class="caveat">
           Déséquilibré : les deux sens sont mesurés et leurs SNR diffèrent d'au moins
-          {{ asymThreshold }} dB. Ces liens restent vifs, les autres sont atténués.
+          {{ asymThreshold }} dB. La case masque tous les autres liens.
         </p>
       </div>
 
