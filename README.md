@@ -135,9 +135,9 @@ A link's colour is the weaker direction's median; directions are never pooled,
 so a strong one cannot hide a failing one. With a single observer the measured
 direction is usually the only one. Below `minDirectionSamples` (default 3)
 values in a direction the result is marked as low confidence and no asymmetry is
-computed. The map's **Asymmetry** view draws one lane per direction instead, and
-highlights links whose direction medians differ by at least
-`asymmetryThresholdDb` (default 6 dB). The **Fonctionnel** view keeps only links
+computed. The map's **Par sens** view draws one lane per direction instead, and
+highlights unbalanced links ("déséquilibré"): both directions measured, medians
+at least `asymmetryThresholdDb` (default 6 dB) apart. The **Fonctionnel** view keeps only links
 measured both ways whose weaker direction is at least -5 dB.
 
 Nodes not heard for `nodeMaxAge` (default 48 h) leave the map. A node is heard

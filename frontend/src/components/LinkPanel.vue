@@ -226,10 +226,12 @@ const tiles = computed(() => {
     const gap = Math.abs(l.snrDelta)
     const alert = gap >= props.asymThreshold
     out.push({
-      label: 'Asymétrie',
+      label: 'Écart entre les sens',
       value: gap.toFixed(1),
       unit: 'dB',
-      hint: `${alert ? 'au-delà' : 'en dessous'} du seuil de ${props.asymThreshold} dB`,
+      hint: alert
+        ? `lien déséquilibré (≥ ${props.asymThreshold} dB)`
+        : `équilibré (< ${props.asymThreshold} dB)`,
       alert,
     })
   }

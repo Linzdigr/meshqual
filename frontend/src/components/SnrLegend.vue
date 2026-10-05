@@ -35,7 +35,7 @@ const palettes: { id: SnrPalette; label: string; hint: string }[] = [
 
 const modes: { id: ViewMode; label: string; hint: string }[] = [
   { id: 'quality', label: 'Qualité', hint: 'Une ligne par lien, sens à plus faible SNR retenu.' },
-  { id: 'asymmetry', label: 'Asymétrie', hint: 'Une voie par sens, chacune avec son propre SNR médian.' },
+  { id: 'asymmetry', label: 'Par sens', hint: 'Une voie par sens, chacune avec son propre SNR médian.' },
   { id: 'functional', label: 'Fonctionnel', hint: 'Liens considérés utilisables uniquement.' },
 ]
 
@@ -124,7 +124,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
       </div>
 
       <div v-if="mode === 'asymmetry'" class="block">
-        <h3>Asymétrie</h3>
+        <h3>Voies par sens</h3>
         <ul class="lanes">
           <li>
             <span class="lane pair" aria-hidden="true" />
@@ -137,12 +137,12 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         </ul>
         <label class="only">
           <input type="checkbox" :checked="asymOnly" @change="emit('toggleAsymOnly')" />
-          <span>Asymétriques seulement</span>
+          <span>Liens déséquilibrés seulement</span>
           <span class="mono count">{{ asymCount }}</span>
         </label>
         <p class="caveat">
-          Liens dont les deux sens sont mesurés et diffèrent d'au moins {{ asymThreshold }} dB. Les
-          autres sont atténués.
+          Déséquilibré : les deux sens sont mesurés et leurs SNR diffèrent d'au moins
+          {{ asymThreshold }} dB. Ces liens restent vifs, les autres sont atténués.
         </p>
       </div>
 
