@@ -140,6 +140,10 @@ highlights links whose direction medians differ by at least
 `asymmetryThresholdDb` (default 6 dB). The **Fonctionnel** view keeps only links
 measured both ways whose weaker direction is at least -5 dB.
 
+Nodes not heard for `nodeMaxAge` (default 48 h) leave the map. A node is heard
+when it adverts, relays in a path that names it unambiguously, or observes.
+It stays known to the server, which still needs it to read paths.
+
 Links longer than `maxHopKm` (default 300 km) are dropped as path-hash collisions
 between distant meshes.
 

@@ -438,3 +438,30 @@ func TestZeroHopAdvertDoesNotRevealHashSize(t *testing.T) {
 		t.Errorf("a zero-hop advert alone gave PathHashSize = %d, want 0 (unknown)", n.PathHashSize)
 	}
 }
+
+// A node is heard when an unambiguous path names it as a relay, or when it
+// publishes as an observer. Ambiguous hashes touch nobody; time never goes back.
+func TestDecodeRecordsWhenNodesWereHeard(t *testing.T) {
+	a, b, obs := pk(0x01), pk(0x02), pk(0x09)
+	r := seedResolver(t, a, b, obs)
+	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+	raw := buildFlood([]string{a, b}, 2, meshcore.PayloadGrpTxt, []byte("x"))
+	if _, err := Decode(source.Observation{ObserverKey: obs, ReceivedAt: at, SNR: f64(3), Raw: raw}, r); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{a, b, obs} {
+		if n, _ := r.Get(k); !n.LastHeard.Equal(at) {
+			t.Errorf("%s LastHeard = %v, want %v", k[:4], n.LastHeard, at)
+		}
+	}
+
+	r.Touch(a, at.Add(-time.Hour))
+	if n, _ := r.Get(a); !n.LastHeard.Equal(at) {
+		t.Errorf("an older touch moved LastHeard back to %v", n.LastHeard)
+	}
+	r.Touch(pk(0x77), at) // unknown: ignored, not created
+	if _, ok := r.Get(pk(0x77)); ok {
+		t.Error("Touch created an unknown node")
+	}
+}

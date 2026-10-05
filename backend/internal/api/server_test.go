@@ -484,3 +484,31 @@ func TestNodeDetailNeighboursAndBackbone(t *testing.T) {
 		t.Errorf("unknown node: status %d, want 404", res.StatusCode)
 	}
 }
+
+func TestNodesHidesSilentNodes(t *testing.T) {
+	f := newFixture(t)
+	f.srv.d.NodeMaxAge = 48 * time.Hour
+	// The fixture's adverts were just heard; make one node silent for 3 days.
+	f.resolver.Upsert(ingest.Node{Key: keyFor(0x44), Name: "silent",
+		Latitude: ptrF(48.2), Longitude: ptrF(-1.7), LastHeard: time.Now().Add(-72 * time.Hour)})
+
+	_, body := f.get(t, "/api/nodes")
+	var fc FeatureCollection
+	if err := json.Unmarshal(body, &fc); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, ft := range fc.Features {
+		keys[ft.Properties["key"].(string)] = true
+	}
+	if keys[keyFor(0x44)] {
+		t.Error("a node silent for 72h is still on the map")
+	}
+	if !keys[f.a] || !keys[f.b] {
+		t.Errorf("recently heard nodes missing: %v", keys)
+	}
+	// Still known: its detail answers, for shared links and path resolution.
+	if res, _ := f.get(t, "/api/nodes/"+keyFor(0x44)); res.StatusCode != http.StatusOK {
+		t.Errorf("silent node detail: status %d, want 200", res.StatusCode)
+	}
+}
