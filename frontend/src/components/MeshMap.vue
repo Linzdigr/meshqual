@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import { useMapLibre, type Padding } from '@/composables/useMapLibre'
+import type { AltitudeRange } from '@/map/elevation'
 import type { ViewMode } from '@/map/lanes'
 import type { SnrPalette } from '@/styles/scale'
 
@@ -16,7 +17,7 @@ const props = defineProps<{
   asymOnly: boolean
   asymThreshold: number
   palette: SnrPalette
-  topo: boolean
+  altitude: boolean
   /** Skip framing all nodes on first load: a shared link frames its own target. */
   noAutoFit?: boolean
 }>()
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   moveend: [BBox]
   select: [string | null]
   selectNode: [string | null]
+  altitudeRange: [AltitudeRange | null]
 }>()
 
 const container = ref<HTMLElement | null>(null)
@@ -34,7 +36,7 @@ const modeRef = ref(props.mode)
 const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
-const topoRef = ref(props.topo)
+const altitudeRef = ref(props.altitude)
 
 const map = useMapLibre({
   container,
@@ -44,7 +46,8 @@ const map = useMapLibre({
   asymOnly: asymOnlyRef,
   asymThreshold: asymThresholdRef,
   palette: paletteRef,
-  topo: topoRef,
+  altitude: altitudeRef,
+  onAltitudeRange: (r) => emit('altitudeRange', r),
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
   onSelectNode: (key) => emit('selectNode', key),
@@ -89,10 +92,10 @@ watch(
 watch(() => props.selectedLinkId, (id) => map.highlight(id))
 watch(() => props.selectedNodeKey, (key) => map.highlightNode(key))
 watch(
-  () => props.topo,
+  () => props.altitude,
   (on) => {
-    topoRef.value = on
-    map.applyTopo()
+    altitudeRef.value = on
+    map.applyAltitude()
   },
 )
 

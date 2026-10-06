@@ -10,6 +10,8 @@ import SnrLegend from '@/components/SnrLegend.vue'
 import LinkPanel from '@/components/LinkPanel.vue'
 import NodePanel from '@/components/NodePanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
+import LayersControl from '@/components/LayersControl.vue'
+import type { AltitudeRange } from '@/map/elevation'
 
 const store = useMeshStore()
 const { mode, dark, cycle } = useTheme()
@@ -85,6 +87,9 @@ async function openDeepLink() {
 // Narrow screens fold the legend under its mode switch. It folds again when a
 // link or node is opened, so the panel docked at the bottom has the room.
 const legendOpen = ref(false)
+
+/** What the altitude colours currently span, for the scale beside the map controls. */
+const altitudeRange = ref<AltitudeRange | null>(null)
 watch(
   () => store.selectedLinkId ?? store.selectedNodeKey,
   (sel) => {
@@ -259,11 +264,18 @@ watch(
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
-        :topo="store.topo"
+        :altitude="store.altitude"
         :no-auto-fit="deepLink"
         @moveend="onMoveEnd"
         @select="(id) => store.selectLink(id)"
         @select-node="(key) => store.selectNode(key)"
+        @altitude-range="(r) => (altitudeRange = r)"
+      />
+
+      <LayersControl
+        :altitude="store.altitude"
+        :range="altitudeRange"
+        @toggle-altitude="store.altitude = !store.altitude"
       />
 
       <div ref="legendEl" class="overlay left">
@@ -277,8 +289,6 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
-          :topo="store.topo"
-          @toggle-topo="store.topo = !store.topo"
           :one-byte-hash-count="store.oneByteHashCount"
           v-model:open="legendOpen"
           @toggle="onToggleKind"

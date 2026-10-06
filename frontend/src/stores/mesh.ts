@@ -26,7 +26,7 @@ interface ViewPrefs {
   mode: ViewMode
   asymOnly: boolean
   palette: SnrPalette
-  topo: boolean
+  altitude: boolean
 }
 
 /** View preferences are per browser; storage may be unavailable, so it is optional. */
@@ -37,10 +37,10 @@ function loadView(): ViewPrefs {
       mode: v.mode === 'asymmetry' || v.mode === 'functional' ? v.mode : 'quality',
       asymOnly: v.asymOnly === true,
       palette: v.palette === 'traffic' ? 'traffic' : 'blue',
-      topo: v.topo === true,
+      altitude: v.altitude === true,
     }
   } catch {
-    return { mode: 'quality', asymOnly: false, palette: 'blue', topo: false }
+    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false }
   }
 }
 
@@ -76,10 +76,10 @@ export const useMeshStore = defineStore('mesh', () => {
   const viewMode = ref<ViewMode>(savedView.mode)
   const asymOnly = ref(savedView.asymOnly)
   const palette = ref<SnrPalette>(savedView.palette)
-  const topo = ref(savedView.topo)
-  watch([viewMode, asymOnly, palette, topo], ([mode, only, pal, tp]) => {
+  const altitude = ref(savedView.altitude)
+  watch([viewMode, asymOnly, palette, altitude], ([mode, only, pal, alt]) => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal, topo: tp }))
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt }))
     } catch {}
   })
   // The CSS ramp variables (legend, frame table) switch on this attribute; the
@@ -272,7 +272,7 @@ export const useMeshStore = defineStore('mesh', () => {
     viewMode,
     asymOnly,
     palette,
-    topo,
+    altitude,
     asymmetryThresholdDb,
     asymmetricCount,
     functionalCount,

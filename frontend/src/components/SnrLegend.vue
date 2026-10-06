@@ -18,7 +18,6 @@ const props = defineProps<{
   oneByteHashCount: number
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
-  topo: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,7 +26,6 @@ const emit = defineEmits<{
   toggleAsymOnly: []
   setPalette: [SnrPalette]
   'update:open': [boolean]
-  toggleTopo: []
 }>()
 
 const palettes: { id: SnrPalette; label: string; hint: string }[] = [
@@ -149,10 +147,6 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
       </div>
 
       <div class="block">
-        <label class="only topo">
-          <input type="checkbox" :checked="topo" @change="emit('toggleTopo')" />
-          <span>Topographie (relief et courbes IGN)</span>
-        </label>
       </div>
 
       <div class="block">

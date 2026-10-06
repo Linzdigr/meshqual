@@ -149,17 +149,18 @@ between distant meshes.
 
 SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
 
-## Topography and line of sight (France)
+## Altitude and line of sight
 
-Both use the IGN Géoplateforme, free and keyless (Licence Ouverte, credited
-"© IGN" on the map):
-
-- The legend's **Topographie** switch overlays IGN hillshade and contour lines
-  (from zoom 13) under the links.
-- The link panel ends with a foldable **Ligne de vue** section: the ground
-  profile between the two nodes, the straight line between antennas, the
-  earth's bulge (k = 4/3) and the first Fresnel zone, with a verdict (clear
-  when 60% of the zone is free). relayd fetches the profile from the IGN
+- The **Calques** button under the zoom controls toggles an **Altitude** layer:
+  elevation as a thermal colour ramp (dark blue low, red high) under the links.
+  The ramp is stretched to the altitudes in view each time the map moves, with
+  the range shown beside the button. Elevation comes from the AWS Open Data
+  [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (worldwide,
+  keyless), drawn by the browser.
+- The link panel ends with a foldable **Ligne de vue** section (France only,
+  IGN Géoplateforme, free and keyless): the ground profile between the two
+  nodes, the straight line between antennas, the earth's bulge (k = 4/3) and
+  the first Fresnel zone, with a verdict (clear when 60% of the zone is free). relayd fetches the profile from the IGN
   `elevationLine` service and caches it. Settings: `losAltimetryUrl` (empty
   disables it), `losResource`, `losFreqMHz` (869.525), `losAntennaM` (10 m,
   assumed at every node). The model is bare ground, without buildings or trees.

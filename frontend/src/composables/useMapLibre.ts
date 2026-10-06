@@ -17,6 +17,14 @@ import {
   type SnrPalette,
 } from '@/styles/scale'
 import { buildLanes, isAsymmetric, isFunctional, laneId, type ViewMode } from '@/map/lanes'
+import {
+  reliefColorExpression,
+  TERRARIUM_ATTRIBUTION,
+  TERRARIUM_MAXZOOM,
+  TERRARIUM_URL,
+  viewRange,
+  type AltitudeRange,
+} from '@/map/elevation'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
@@ -52,31 +60,10 @@ const TILE_URL =
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as const
 
-/**
- * Topography overlays from the IGN Géoplateforme (France, free, keyless, CORS
- * open): hillshade and contour lines, between the basemap and the links.
- * Licence Ouverte: credit IGN.
- */
-const IGN_WMTS = (layer: string, style: string) =>
-  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
-  `&LAYER=${layer}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}` +
-  '&FORMAT=image/png'
-const IGN_ATTRIBUTION = '&copy; <a href="https://www.ign.fr/">IGN</a>'
-const LAYER_RELIEF = 'topo-relief'
-const LAYER_CONTOURS = 'topo-contours'
-
-/**
- * The IGN hillshade is black with the shading in its alpha channel, which
- * suits a light map as is. On the dark map black would vanish, so it is lifted
- * to a light grey there.
- */
-function reliefPaint(dark: boolean) {
-  return {
-    'raster-opacity': dark ? 0.55 : 0.85,
-    'raster-brightness-min': dark ? 0.75 : 0,
-    'raster-brightness-max': 1,
-  }
-}
+const LAYER_ALTITUDE = 'altitude'
+const ALTITUDE_SOURCE = 'terrain-dem'
+/** Strong enough to read the ramp, light enough for the basemap to show through. */
+const altitudeOpacity = (dark: boolean) => (dark ? 0.5 : 0.55)
 
 /** How long a link animates after its newest packet. */
 const ACTIVE_MS = 10_000
@@ -333,20 +320,13 @@ function baseStyle(dark: boolean): StyleSpecification {
       [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
-      'ign-relief': {
-        type: 'raster',
-        tiles: [IGN_WMTS('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'estompage_grayscale')],
+      [ALTITUDE_SOURCE]: {
+        type: 'raster-dem',
+        tiles: [TERRARIUM_URL],
+        encoding: 'terrarium',
         tileSize: 256,
-        maxzoom: 15,
-        attribution: IGN_ATTRIBUTION,
-      },
-      'ign-contours': {
-        type: 'raster',
-        tiles: [IGN_WMTS('ELEVATION.CONTOUR.LINE', 'normal')],
-        tileSize: 256,
-        minzoom: 6,
-        maxzoom: 18,
-        attribution: IGN_ATTRIBUTION,
+        maxzoom: TERRARIUM_MAXZOOM,
+        attribution: TERRARIUM_ATTRIBUTION,
       },
     },
     layers: [
@@ -363,22 +343,17 @@ function baseStyle(dark: boolean): StyleSpecification {
           'raster-brightness-max': dark ? 0.55 : 1,
         },
       },
-      // Topography, off until switched on (applyTopo).
+      // Altitude as colour, off until switched on (applyAltitude). The ramp is
+      // re-stretched to the view as it moves.
       {
-        id: LAYER_RELIEF,
-        type: 'raster',
-        source: 'ign-relief',
+        id: LAYER_ALTITUDE,
+        type: 'color-relief',
+        source: ALTITUDE_SOURCE,
         layout: { visibility: 'none' },
-        paint: reliefPaint(dark),
-      },
-      // Contours only read once zoomed in; below z13 they are a grey haze.
-      {
-        id: LAYER_CONTOURS,
-        type: 'raster',
-        source: 'ign-contours',
-        minzoom: 13,
-        layout: { visibility: 'none' },
-        paint: { 'raster-opacity': dark ? 0.6 : 0.75 },
+        paint: {
+          'color-relief-opacity': altitudeOpacity(dark),
+          'color-relief-color': reliefColorExpression({ lo: 0, hi: 300 }) as never,
+        },
       },
     ],
   }
@@ -656,8 +631,10 @@ export interface UseMapOptions {
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
   palette: Ref<SnrPalette>
-  /** IGN hillshade and contour lines under the links. */
-  topo: Ref<boolean>
+  /** Altitude as a colour ramp under the links. */
+  altitude: Ref<boolean>
+  /** The altitudes the ramp currently spans, or null while it is off. */
+  onAltitudeRange?: (range: AltitudeRange | null) => void
   center?: [number, number]
   zoom?: number
   onMoveEnd: (bbox: BBox) => void
@@ -721,14 +698,16 @@ export function useMapLibre(opts: UseMapOptions) {
       ready = true
       applyView()
       applyFocus()
-      applyTopo()
+      applyAltitude()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       opts.onMoveEnd(bboxOf(map))
     })
 
     map.on('moveend', () => {
-      if (map) opts.onMoveEnd(bboxOf(map))
+      if (!map) return
+      opts.onMoveEnd(bboxOf(map))
+      if (opts.altitude.value) scheduleAltitudeStretch()
     })
 
     const hitAt = (point: maplibregl.Point) => {
@@ -1147,10 +1126,7 @@ export function useMapLibre(opts: UseMapOptions) {
     const dark = opts.dark.value
     map.setPaintProperty('basemap', 'raster-opacity', dark ? 0.45 : 0.75)
     map.setPaintProperty('basemap', 'raster-brightness-max', dark ? 0.55 : 1)
-    for (const [prop, value] of Object.entries(reliefPaint(dark))) {
-      map.setPaintProperty(LAYER_RELIEF, prop, value)
-    }
-    map.setPaintProperty(LAYER_CONTOURS, 'raster-opacity', dark ? 0.6 : 0.75)
+    map.setPaintProperty(LAYER_ALTITUDE, 'color-relief-opacity', altitudeOpacity(dark))
     addDataLayers()
     applyView()
     applyFocus()
@@ -1158,12 +1134,35 @@ export function useMapLibre(opts: UseMapOptions) {
     syncActive()
   }
 
-  /** Shows or hides the topography overlays. */
-  function applyTopo() {
+  /** Shows or hides the altitude layer; showing it stretches the ramp to the view. */
+  function applyAltitude() {
     if (!map || !ready) return
-    const v = opts.topo.value ? 'visible' : 'none'
-    map.setLayoutProperty(LAYER_RELIEF, 'visibility', v)
-    map.setLayoutProperty(LAYER_CONTOURS, 'visibility', v)
+    const on = opts.altitude.value
+    map.setLayoutProperty(LAYER_ALTITUDE, 'visibility', on ? 'visible' : 'none')
+    if (on) scheduleAltitudeStretch(0)
+    else {
+      window.clearTimeout(stretchTimer)
+      stretchSeq++
+      opts.onAltitudeRange?.(null)
+    }
+  }
+
+  let stretchTimer = 0
+  let stretchSeq = 0
+  /**
+   * Re-spreads the colours over the altitudes in view, once the map settles.
+   * A later move wins over a stretch still downloading tiles.
+   */
+  function scheduleAltitudeStretch(delay = 250) {
+    window.clearTimeout(stretchTimer)
+    stretchTimer = window.setTimeout(async () => {
+      if (!map) return
+      const seq = ++stretchSeq
+      const range = await viewRange(bboxOf(map), map.getZoom())
+      if (!map || seq !== stretchSeq || !range || !opts.altitude.value) return
+      map.setPaintProperty(LAYER_ALTITUDE, 'color-relief-color', reliefColorExpression(range) as never)
+      opts.onAltitudeRange?.(range)
+    }, delay)
   }
 
   function fitTo(bbox: BBox) {
@@ -1177,6 +1176,7 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   onScopeDispose(() => {
+    window.clearTimeout(stretchTimer)
     if (raf !== 0) cancelAnimationFrame(raf)
     map?.remove()
     map = null
@@ -1192,7 +1192,7 @@ export function useMapLibre(opts: UseMapOptions) {
     retheme,
     fitTo,
     applyView,
-    applyTopo,
+    applyAltitude,
     focusLink,
     focusPoints,
   }
