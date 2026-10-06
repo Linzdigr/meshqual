@@ -17,6 +17,7 @@ import (
 	"github.com/yvanferez/meshqual/backend/internal/config"
 	"github.com/yvanferez/meshqual/backend/internal/hub"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
+	"github.com/yvanferez/meshqual/backend/internal/los"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 	"github.com/yvanferez/meshqual/backend/internal/store"
 )
@@ -141,6 +142,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 		LiveWindow: cfg.LiveWindow.D(), FramesMax: cfg.FramesPerLink,
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
+		Profiles:             profiler(cfg),
+		LosParams:            los.Params{FreqMHz: cfg.LosFreqMHz, AntennaM: cfg.LosAntennaM, K: 4.0 / 3.0},
 		Version:              version, StartedAt: time.Now().UTC(),
 	})
 
@@ -201,4 +204,13 @@ func buildSources(cfg config.Config, log *slog.Logger) ([]source.Source, error) 
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// profiler is the elevation source for the line-of-sight check, or nil (the
+// API then answers 404) when no service is configured.
+func profiler(cfg config.Config) api.Profiler {
+	if cfg.LosAltimetryURL == "" {
+		return nil
+	}
+	return los.NewIGN(cfg.LosAltimetryURL, cfg.LosResource)
 }

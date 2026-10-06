@@ -25,6 +25,10 @@
   /* The "Fonctionnel" view: one light blue for every usable link (FUNCTIONAL_* in scale.ts). */
   --functional: #4f97ea;
 
+  /* Line-of-sight profile: ground. */
+  --terrain: #cdbb9e;
+  --terrain-edge: #9c8664;
+
   /* Link kind badges keep their own colour whatever the SNR palette. */
   --kind-measured: #1c5cab;
   --kind-trace: #0d366b;
@@ -72,6 +76,8 @@
     --snr-4: #b7d3f6;
 
     --functional: #9cc6f5;
+    --terrain: #5c4f3c;
+    --terrain-edge: #8a7556;
     --kind-measured: #2a78d6;
     --kind-trace: #184f95;
 
@@ -106,6 +112,8 @@
   --snr-4: #b7d3f6;
 
   --functional: #9cc6f5;
+  --terrain: #5c4f3c;
+  --terrain-edge: #8a7556;
   --kind-measured: #2a78d6;
   --kind-trace: #184f95;
 

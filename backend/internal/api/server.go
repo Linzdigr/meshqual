@@ -13,6 +13,7 @@ import (
 
 	"github.com/yvanferez/meshqual/backend/internal/hub"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
+	"github.com/yvanferez/meshqual/backend/internal/los"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 	"github.com/yvanferez/meshqual/backend/internal/store"
 	"github.com/yvanferez/meshqual/backend/internal/topo"
@@ -36,8 +37,11 @@ type Deps struct {
 	AsymmetryThresholdDb float64
 	// NodeMaxAge hides nodes not heard for longer from /api/nodes. 0 disables.
 	NodeMaxAge time.Duration
-	Version    string
-	StartedAt  time.Time
+	// Elevation profiles for the line-of-sight check; nil disables it.
+	Profiles  Profiler
+	LosParams los.Params
+	Version   string
+	StartedAt time.Time
 }
 
 // Server holds the router.
@@ -68,6 +72,7 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("GET /api/links/{a}/{b}", s.link)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/frames", s.frames)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/history", s.history)
+	s.mux.HandleFunc("GET /api/links/{a}/{b}/profile", s.profile)
 	s.mux.HandleFunc("GET /api/stream", s.stream)
 	return s
 }

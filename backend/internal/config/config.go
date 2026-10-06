@@ -43,6 +43,14 @@ type Config struct {
 	// map's asymmetry view highlights a link.
 	AsymmetryThresholdDb float64 `json:"asymmetryThresholdDb"`
 
+	// Line of sight (link panel). LosAltimetryURL is the IGN Géoplateforme
+	// elevationLine service (France only); empty disables the feature.
+	LosAltimetryURL string  `json:"losAltimetryUrl"`
+	LosResource     string  `json:"losResource"`
+	LosFreqMHz      float64 `json:"losFreqMHz"`
+	// LosAntennaM is the antenna height assumed above ground at every node.
+	LosAntennaM float64 `json:"losAntennaM"`
+
 	// MaxHopKm is the longest distance accepted for a single radio hop. Longer
 	// pairs come from path hashes colliding across distant meshes. 0 disables it.
 	MaxHopKm float64 `json:"maxHopKm"`
@@ -94,6 +102,10 @@ func Default() Config {
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,
 		MaxHopKm:             300,
+		LosAltimetryURL:      "https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevationLine.json",
+		LosResource:          "ign_rge_alti_wld",
+		LosFreqMHz:           869.525,
+		LosAntennaM:          10,
 		MinDirectionSamples:  3,
 		AsymmetryThresholdDb: 6,
 		PushInterval:         Duration(2 * time.Second),

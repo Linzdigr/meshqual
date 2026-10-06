@@ -259,6 +259,7 @@ watch(
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
+        :topo="store.topo"
         :no-auto-fit="deepLink"
         @moveend="onMoveEnd"
         @select="(id) => store.selectLink(id)"
@@ -276,6 +277,8 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
+          :topo="store.topo"
+          @toggle-topo="store.topo = !store.topo"
           :one-byte-hash-count="store.oneByteHashCount"
           v-model:open="legendOpen"
           @toggle="onToggleKind"
@@ -302,6 +305,7 @@ watch(
           :history="store.history"
           :thresholds="store.snrThresholds"
           :asym-threshold="store.asymmetryThresholdDb"
+          :profile="store.profile"
           @close="store.selectLink(null)"
         />
       </div>

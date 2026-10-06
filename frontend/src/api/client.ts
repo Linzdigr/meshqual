@@ -6,6 +6,7 @@ import type {
   HistoryBucket,
   LinkKind,
   LinkDetail,
+  LinkProfile,
   LinkProperties,
   NodeDetail,
   NodeProperties,
@@ -77,6 +78,11 @@ export const api = {
   link: (linkId: string, signal?: AbortSignal) => {
     const [a, b] = linkId.split(':')
     return get<LinkDetail>(`/api/links/${a}/${b}`, signal)
+  },
+
+  profile: (linkId: string, signal?: AbortSignal) => {
+    const [a, b] = linkId.split(':')
+    return get<LinkProfile>(`/api/links/${a}/${b}/profile`, signal)
   },
 
   frames: (linkId: string, limit = 10, signal?: AbortSignal) => {

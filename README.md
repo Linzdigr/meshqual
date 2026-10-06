@@ -149,6 +149,21 @@ between distant meshes.
 
 SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
 
+## Topography and line of sight (France)
+
+Both use the IGN Géoplateforme, free and keyless (Licence Ouverte, credited
+"© IGN" on the map):
+
+- The legend's **Topographie** switch overlays IGN hillshade and contour lines
+  (from zoom 13) under the links.
+- The link panel ends with a foldable **Ligne de vue** section: the ground
+  profile between the two nodes, the straight line between antennas, the
+  earth's bulge (k = 4/3) and the first Fresnel zone, with a verdict (clear
+  when 60% of the zone is free). relayd fetches the profile from the IGN
+  `elevationLine` service and caches it. Settings: `losAltimetryUrl` (empty
+  disables it), `losResource`, `losFreqMHz` (869.525), `losAntennaM` (10 m,
+  assumed at every node). The model is bare ground, without buildings or trees.
+
 ## API
 
 | Route | Description |
@@ -158,6 +173,7 @@ SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
 | `GET /api/links/{a}/{b}` | Aggregated link state |
 | `GET /api/links/{a}/{b}/frames?limit=10` | Last frames on the link |
 | `GET /api/links/{a}/{b}/history?window=24h&bucket=1h` | SNR time series (requires TimescaleDB) |
+| `GET /api/links/{a}/{b}/profile` | Line of sight over the IGN ground profile |
 | `GET /api/stream?link=A:B` | SSE: `links:changed`, `frame` |
 | `GET /api/config` | SNR thresholds and refresh settings |
 | `GET /api/health` | Source and pipeline status |

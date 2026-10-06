@@ -52,6 +52,32 @@ const TILE_URL =
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as const
 
+/**
+ * Topography overlays from the IGN Géoplateforme (France, free, keyless, CORS
+ * open): hillshade and contour lines, between the basemap and the links.
+ * Licence Ouverte: credit IGN.
+ */
+const IGN_WMTS = (layer: string, style: string) =>
+  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+  `&LAYER=${layer}&STYLE=${style}&TILEMATRIXSET=PM&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}` +
+  '&FORMAT=image/png'
+const IGN_ATTRIBUTION = '&copy; <a href="https://www.ign.fr/">IGN</a>'
+const LAYER_RELIEF = 'topo-relief'
+const LAYER_CONTOURS = 'topo-contours'
+
+/**
+ * The IGN hillshade is black with the shading in its alpha channel, which
+ * suits a light map as is. On the dark map black would vanish, so it is lifted
+ * to a light grey there.
+ */
+function reliefPaint(dark: boolean) {
+  return {
+    'raster-opacity': dark ? 0.55 : 0.85,
+    'raster-brightness-min': dark ? 0.75 : 0,
+    'raster-brightness-max': 1,
+  }
+}
+
 /** How long a link animates after its newest packet. */
 const ACTIVE_MS = 10_000
 
@@ -307,6 +333,21 @@ function baseStyle(dark: boolean): StyleSpecification {
       [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      'ign-relief': {
+        type: 'raster',
+        tiles: [IGN_WMTS('ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'estompage_grayscale')],
+        tileSize: 256,
+        maxzoom: 15,
+        attribution: IGN_ATTRIBUTION,
+      },
+      'ign-contours': {
+        type: 'raster',
+        tiles: [IGN_WMTS('ELEVATION.CONTOUR.LINE', 'normal')],
+        tileSize: 256,
+        minzoom: 6,
+        maxzoom: 18,
+        attribution: IGN_ATTRIBUTION,
+      },
     },
     layers: [
       {
@@ -321,6 +362,23 @@ function baseStyle(dark: boolean): StyleSpecification {
           'raster-brightness-min': dark ? 0.0 : 0.15,
           'raster-brightness-max': dark ? 0.55 : 1,
         },
+      },
+      // Topography, off until switched on (applyTopo).
+      {
+        id: LAYER_RELIEF,
+        type: 'raster',
+        source: 'ign-relief',
+        layout: { visibility: 'none' },
+        paint: reliefPaint(dark),
+      },
+      // Contours only read once zoomed in; below z13 they are a grey haze.
+      {
+        id: LAYER_CONTOURS,
+        type: 'raster',
+        source: 'ign-contours',
+        minzoom: 13,
+        layout: { visibility: 'none' },
+        paint: { 'raster-opacity': dark ? 0.6 : 0.75 },
       },
     ],
   }
@@ -598,6 +656,8 @@ export interface UseMapOptions {
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
   palette: Ref<SnrPalette>
+  /** IGN hillshade and contour lines under the links. */
+  topo: Ref<boolean>
   center?: [number, number]
   zoom?: number
   onMoveEnd: (bbox: BBox) => void
@@ -661,6 +721,7 @@ export function useMapLibre(opts: UseMapOptions) {
       ready = true
       applyView()
       applyFocus()
+      applyTopo()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       opts.onMoveEnd(bboxOf(map))
@@ -1086,11 +1147,23 @@ export function useMapLibre(opts: UseMapOptions) {
     const dark = opts.dark.value
     map.setPaintProperty('basemap', 'raster-opacity', dark ? 0.45 : 0.75)
     map.setPaintProperty('basemap', 'raster-brightness-max', dark ? 0.55 : 1)
+    for (const [prop, value] of Object.entries(reliefPaint(dark))) {
+      map.setPaintProperty(LAYER_RELIEF, prop, value)
+    }
+    map.setPaintProperty(LAYER_CONTOURS, 'raster-opacity', dark ? 0.6 : 0.75)
     addDataLayers()
     applyView()
     applyFocus()
     updateFocusLabels()
     syncActive()
+  }
+
+  /** Shows or hides the topography overlays. */
+  function applyTopo() {
+    if (!map || !ready) return
+    const v = opts.topo.value ? 'visible' : 'none'
+    map.setLayoutProperty(LAYER_RELIEF, 'visibility', v)
+    map.setLayoutProperty(LAYER_CONTOURS, 'visibility', v)
   }
 
   function fitTo(bbox: BBox) {
@@ -1119,6 +1192,7 @@ export function useMapLibre(opts: UseMapOptions) {
     retheme,
     fitTo,
     applyView,
+    applyTopo,
     focusLink,
     focusPoints,
   }

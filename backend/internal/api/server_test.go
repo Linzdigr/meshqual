@@ -15,6 +15,7 @@ import (
 
 	"github.com/yvanferez/meshqual/backend/internal/hub"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
+	"github.com/yvanferez/meshqual/backend/internal/los"
 	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 	"github.com/yvanferez/meshqual/backend/internal/store"
@@ -510,5 +511,49 @@ func TestNodesHidesSilentNodes(t *testing.T) {
 	// Still known: its detail answers, for shared links and path resolution.
 	if res, _ := f.get(t, "/api/nodes/"+keyFor(0x44)); res.StatusCode != http.StatusOK {
 		t.Errorf("silent node detail: status %d, want 200", res.StatusCode)
+	}
+}
+
+type fakeProfiler struct {
+	pts []los.Point
+	err error
+}
+
+func (f fakeProfiler) Profile(context.Context, float64, float64, float64, float64, int) ([]los.Point, error) {
+	return f.pts, f.err
+}
+
+func TestLinkProfile(t *testing.T) {
+	f := newFixture(t)
+	url := "/api/links/" + f.a + "/" + f.b + "/profile"
+
+	if res, _ := f.get(t, url); res.StatusCode != http.StatusNotFound {
+		t.Errorf("disabled: status %d, want 404", res.StatusCode)
+	}
+
+	f.srv.d.LosParams = los.Params{FreqMHz: 869.525, AntennaM: 10, K: 4.0 / 3.0}
+	f.srv.d.Profiles = fakeProfiler{pts: []los.Point{{DistM: 0, GroundM: 50}, {DistM: 500, GroundM: 50}, {DistM: 1000, GroundM: 50}}}
+	res, body := f.get(t, url)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	var got struct {
+		Available bool
+		Result    struct {
+			Verdict string
+			Points  []struct{ D, T, L, F float64 }
+		}
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Available || got.Result.Verdict != "clear" || len(got.Result.Points) != 3 {
+		t.Errorf("profile = %s", body)
+	}
+
+	f.srv.d.Profiles = fakeProfiler{err: los.ErrNoCoverage}
+	_, body = f.get(t, url)
+	if !strings.Contains(string(body), `"available":false`) {
+		t.Errorf("outside coverage: %s, want available:false", body)
 	}
 }

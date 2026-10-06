@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import type { Frame, HistoryBucket, LinkProperties } from '@/api/types'
+import type { Frame, HistoryBucket, LinkProfile, LinkProperties } from '@/api/types'
 import FrameTable from './FrameTable.vue'
 import SnrSparkline from './SnrSparkline.vue'
 import ShareButton from './ShareButton.vue'
+import ProfileChart from './ProfileChart.vue'
 import { formatDuration } from '@/utils/duration'
 
 const props = defineProps<{
@@ -12,9 +13,25 @@ const props = defineProps<{
   history: HistoryBucket[]
   thresholds: number[]
   asymThreshold: number
+  profile: { state: 'loading' | 'ready' | 'error'; data?: LinkProfile } | null
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/**
+ * The line-of-sight section stays folded so it does not crowd the panel; its
+ * verdict still shows on the toggle. The choice holds while the panel is open.
+ */
+const losOpen = ref(false)
+const losVerdict = computed(() => {
+  const d = props.profile?.data
+  return props.profile?.state === 'ready' && d?.available ? d.result?.verdict : undefined
+})
+const losLabel: Record<string, string> = {
+  clear: 'dégagé',
+  partial: 'partiel',
+  blocked: 'obstrué',
+}
 
 /** A link heard within this long is shown as active (the server's live window). */
 const ACTIVE_LINK_SEC = 24 * 3600
@@ -344,6 +361,21 @@ const tiles = computed(() => {
         />
       </section>
 
+      <section class="los">
+        <button class="los-toggle" type="button" :aria-expanded="losOpen" @click="losOpen = !losOpen">
+          <i class="pi" :class="losOpen ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true" />
+          <span>Ligne de vue</span>
+          <span v-if="losVerdict" class="los-chip" :class="losVerdict">{{ losLabel[losVerdict] }}</span>
+        </button>
+        <ProfileChart
+          v-if="losOpen"
+          :state="profile?.state ?? 'loading'"
+          :profile="profile?.data"
+          :a-name="names.a"
+          :b-name="names.b"
+        />
+      </section>
+
       <footer class="keys mono">
         <span class="node-a" :title="link.aKey">{{ link.aKey.slice(0, 16) }}…</span>
         <span class="node-b" :title="link.bKey">{{ link.bKey.slice(0, 16) }}…</span>
@@ -400,6 +432,56 @@ const tiles = computed(() => {
 .resize:hover::after,
 .resize:focus-visible::after {
   background: var(--accent);
+}
+
+.los-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+
+.los-toggle:hover {
+  color: var(--text-primary);
+}
+
+.los-toggle .pi {
+  font-size: 10px;
+}
+
+/* The verdict always carries its word; colour only reinforces it. */
+.los-chip {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.los-chip.clear {
+  color: var(--status-good);
+}
+
+.los-chip.partial {
+  color: var(--status-warning);
+}
+
+.los-chip.blocked {
+  color: var(--status-critical);
 }
 
 .grip {

@@ -225,3 +225,33 @@ export interface NodeDetail {
   lastSeen?: string
   ageSec?: number
 }
+
+/** One point of a line-of-sight profile (GET /api/links/{a}/{b}/profile). */
+export interface ProfileSample {
+  /** Distance from node A, km. */
+  d: number
+  /** Ground plus the earth's bulge, m: what the radio path has to clear. */
+  t: number
+  /** Height of the straight antenna-to-antenna line, m. */
+  l: number
+  /** First Fresnel zone radius, m. */
+  f: number
+}
+
+export type LosVerdict = 'clear' | 'partial' | 'blocked'
+
+export interface LinkProfile {
+  available: boolean
+  /** Why it is unavailable: outside the elevation model, or too short. */
+  reason?: 'no_coverage' | 'too_short'
+  freqMHz?: number
+  antennaM?: number
+  result?: {
+    distKm: number
+    points: ProfileSample[]
+    /** Smallest (line - terrain) / Fresnel radius: 1 = zone free, < 0 = blocked. */
+    clearance: number
+    verdict: LosVerdict
+    worst: ProfileSample
+  }
+}

@@ -9,6 +9,7 @@ import type {
   Health,
   HistoryBucket,
   LinkKind,
+  LinkProfile,
   LinkProperties,
   NodeDetail,
   NodeProperties,
@@ -25,6 +26,7 @@ interface ViewPrefs {
   mode: ViewMode
   asymOnly: boolean
   palette: SnrPalette
+  topo: boolean
 }
 
 /** View preferences are per browser; storage may be unavailable, so it is optional. */
@@ -35,9 +37,10 @@ function loadView(): ViewPrefs {
       mode: v.mode === 'asymmetry' || v.mode === 'functional' ? v.mode : 'quality',
       asymOnly: v.asymOnly === true,
       palette: v.palette === 'traffic' ? 'traffic' : 'blue',
+      topo: v.topo === true,
     }
   } catch {
-    return { mode: 'quality', asymOnly: false, palette: 'blue' }
+    return { mode: 'quality', asymOnly: false, palette: 'blue', topo: false }
   }
 }
 
@@ -58,6 +61,12 @@ export const useMeshStore = defineStore('mesh', () => {
   const nodeDetail = ref<NodeDetail | null>(null)
   const frames = ref<Frame[]>([])
   const history = ref<HistoryBucket[]>([])
+  /**
+   * Line of sight of the selected link, fetched as soon as it is selected so
+   * the panel's section is ready when unfolded. 'error' covers a disabled
+   * feature or an unreachable elevation service.
+   */
+  const profile = ref<{ state: 'loading' | 'ready' | 'error'; data?: LinkProfile } | null>(null)
 
   const bbox = ref<BBox | null>(null)
   const kinds = ref<LinkKind[]>(['measured', 'trace', 'topology'])
@@ -67,9 +76,10 @@ export const useMeshStore = defineStore('mesh', () => {
   const viewMode = ref<ViewMode>(savedView.mode)
   const asymOnly = ref(savedView.asymOnly)
   const palette = ref<SnrPalette>(savedView.palette)
-  watch([viewMode, asymOnly, palette], ([mode, only, pal]) => {
+  const topo = ref(savedView.topo)
+  watch([viewMode, asymOnly, palette, topo], ([mode, only, pal, tp]) => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal }))
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal, topo: tp }))
     } catch {}
   })
   // The CSS ramp variables (legend, frame table) switch on this attribute; the
@@ -181,8 +191,20 @@ export const useMeshStore = defineStore('mesh', () => {
     }
   }
 
+  async function loadProfile(linkId: string) {
+    profile.value = { state: 'loading' }
+    try {
+      const data = await api.profile(linkId)
+      if (selectedLinkId.value === linkId) profile.value = { state: 'ready', data }
+    } catch {
+      if (selectedLinkId.value === linkId) profile.value = { state: 'error' }
+    }
+  }
+
   async function selectLink(linkId: string | null) {
     selectedLinkId.value = linkId
+    profile.value = null
+    if (linkId) void loadProfile(linkId)
     if (linkId) {
       selectedNodeKey.value = null
       nodeDetail.value = null
@@ -243,12 +265,14 @@ export const useMeshStore = defineStore('mesh', () => {
     selectedLink,
     frames,
     history,
+    profile,
     bbox,
     kinds,
     minSamples,
     viewMode,
     asymOnly,
     palette,
+    topo,
     asymmetryThresholdDb,
     asymmetricCount,
     functionalCount,

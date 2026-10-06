@@ -16,6 +16,7 @@ const props = defineProps<{
   asymOnly: boolean
   asymThreshold: number
   palette: SnrPalette
+  topo: boolean
   /** Skip framing all nodes on first load: a shared link frames its own target. */
   noAutoFit?: boolean
 }>()
@@ -33,6 +34,7 @@ const modeRef = ref(props.mode)
 const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
+const topoRef = ref(props.topo)
 
 const map = useMapLibre({
   container,
@@ -42,6 +44,7 @@ const map = useMapLibre({
   asymOnly: asymOnlyRef,
   asymThreshold: asymThresholdRef,
   palette: paletteRef,
+  topo: topoRef,
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
   onSelectNode: (key) => emit('selectNode', key),
@@ -85,6 +88,13 @@ watch(
 )
 watch(() => props.selectedLinkId, (id) => map.highlight(id))
 watch(() => props.selectedNodeKey, (key) => map.highlightNode(key))
+watch(
+  () => props.topo,
+  (on) => {
+    topoRef.value = on
+    map.applyTopo()
+  },
+)
 
 defineExpose({
   /** Frames a link inside the map area left free by the overlays (padding in px). */
