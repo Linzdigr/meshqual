@@ -18,7 +18,7 @@ describe('nodeIssues', () => {
 
 describe('issueFilter', () => {
   it('matches nothing when every issue is switched off', () => {
-    expect(issueFilter([])).toEqual(['==', 1, 0])
+    expect(issueFilter([])).toEqual(['boolean', false])
   })
 
   it('ors the enabled issues', () => {

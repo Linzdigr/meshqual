@@ -35,5 +35,7 @@ export function issueFilter(enabled: readonly NodeIssue[]): ExpressionSpecificat
   if (enabled.includes('noRegion')) {
     tests.push(['all', ['==', ['get', 'regionScope'], 'none'], ['in', ['get', 'nodeType'], ['literal', INFRA]]])
   }
-  return tests.length ? ['any', ...tests] : ['==', 1, 0]
+  // Nothing enabled: a filter no feature passes. Not ['==', 1, 0], which
+  // MapLibre reads as a legacy filter, rejects, and keeps the previous one.
+  return tests.length ? ['any', ...tests] : ['boolean', false]
 }
