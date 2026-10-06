@@ -25,7 +25,6 @@ interface BluetoothDevice extends EventTarget {
 }
 
 interface Bluetooth {
-  getAvailability?(): Promise<boolean>
   requestDevice(options: {
     filters: ({ services: string[] } | { namePrefix: string })[]
     optionalServices?: string[]

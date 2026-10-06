@@ -50,10 +50,10 @@ function isCancel(e: unknown) {
 }
 
 async function connectBle(ev: TransportEvents): Promise<Transport> {
+  // No getAvailability() check first: on macOS it reports false until the
+  // system has granted the browser Bluetooth, and only requestDevice() makes
+  // the browser ask for that grant.
   const bt = navigator.bluetooth!
-  if (bt.getAvailability && !(await bt.getAvailability().catch(() => true))) {
-    throw new ConnectError(BLUETOOTH_OFF)
-  }
   let device: BluetoothDevice
   try {
     // Companions advertise the UART service; the name prefix catches any
