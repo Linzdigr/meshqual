@@ -10,7 +10,13 @@ import {
   roundTrip,
   type SelfInfo,
 } from '@/companion/protocol'
-import { connect as openTransport, supported, type Transport, type TransportKind } from '@/companion/transport'
+import {
+  Cancelled,
+  connect as openTransport,
+  supported,
+  type Transport,
+  type TransportKind,
+} from '@/companion/transport'
 
 /** One radio hop of a trace, in the direction the trace travelled. */
 export interface TraceHop {
@@ -105,11 +111,9 @@ export const useTraceStore = defineStore('trace', () => {
       status.value = 'connected'
     } catch (e) {
       onClose()
-      // Closing the browser's device picker is not an error worth showing.
-      const name = (e as { name?: string }).name
-      if (name !== 'NotFoundError' && name !== 'AbortError') {
-        connectError.value = e instanceof Error ? e.message : String(e)
-      }
+      // Closing the browser's device picker is not an error worth showing;
+      // anything else is, with the browser's own words.
+      if (!(e instanceof Cancelled)) connectError.value = e instanceof Error ? e.message : String(e)
     }
   }
 
