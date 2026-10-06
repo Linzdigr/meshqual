@@ -230,6 +230,15 @@ watch(
   ([r, open]) => meshMap.value?.setTraceLabels(open && r?.ok ? r.hops : []),
 )
 
+// From launch until its result goes away, the trace has the map to itself:
+// the nodes and links it does not use fade like around a selected link.
+const traceVisits = computed(() => {
+  const self = trace.companion?.publicKey
+  if (!trace.open || !(trace.running || trace.result) || !trace.path.length) return null
+  return self ? [self, ...trace.path, self] : [...trace.path]
+})
+watch(traceVisits, (v) => meshMap.value?.setTraceFocus(v))
+
 function runTrace() {
   void trace.run((hops) => meshMap.value?.animateHops(hops))
 }

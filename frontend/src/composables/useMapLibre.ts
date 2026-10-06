@@ -784,6 +784,8 @@ export function useMapLibre(opts: UseMapOptions) {
   let selectedNode: string | null = null
   let focusLinks: string[] = []
   let focusNodes: string[] = []
+  /** A trace in flight or just back: its nodes and links stay, the rest fades. */
+  let traceFocus: { links: string[]; nodes: string[] } | null = null
 
   function bboxOf(m: MlMap): BBox {
     const b = m.getBounds()
@@ -1194,14 +1196,16 @@ export function useMapLibre(opts: UseMapOptions) {
   /** Fades everything outside the focus (see computeFocus); restores it all without one. */
   function applyFocus() {
     if (!map || !ready) return
-    const on = selectedLink !== null || selectedNode !== null
-    const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', focusLinks]]
+    const on = selectedLink !== null || selectedNode !== null || traceFocus !== null
+    const links = traceFocus?.links ?? focusLinks
+    const nodes = traceFocus?.nodes ?? focusNodes
+    const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', links]]
     for (const { layer, prop, base } of LINK_OPACITY) {
       // The animated packet line is fresh by definition: no age fade.
       const rest = layer === LAYER_ACTIVE ? base : measureFade(base, opts.measureRetentionSec.value)
       map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : rest)
     }
-    const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', focusNodes]]
+    const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', nodes]]
     const nodeOpacity = on ? ['case', inNodes, 1, NODE_FOCUS_DIM] : 1
     map.setPaintProperty(LAYER_NODES, 'circle-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_NODES, 'circle-stroke-opacity', nodeOpacity)
@@ -1380,6 +1384,24 @@ export function useMapLibre(opts: UseMapOptions) {
     syncActive()
   }
 
+  /**
+   * Focuses the map on a trace: the nodes it visits, in order, and the links
+   * between consecutive ones keep full strength; everything else fades as for
+   * a selected link. null lifts it.
+   */
+  function setTraceFocus(visits: string[] | null) {
+    traceFocus = visits
+      ? {
+          nodes: [...new Set(visits)],
+          links: visits.slice(1).map((to, i) => {
+            const from = visits[i]!
+            return from <= to ? `${from}:${to}` : `${to}:${from}`
+          }),
+        }
+      : null
+    applyFocus()
+  }
+
   let traceHops: { from: string; to: string; snr?: number }[] = []
 
   /**
@@ -1465,6 +1487,7 @@ export function useMapLibre(opts: UseMapOptions) {
     animateHops,
     setTracePath,
     setTraceLabels,
+    setTraceFocus,
     focusLink,
     focusPoints,
   }
