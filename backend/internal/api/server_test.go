@@ -512,6 +512,22 @@ func TestNodesHidesSilentNodes(t *testing.T) {
 	if res, _ := f.get(t, "/api/nodes/"+keyFor(0x44)); res.StatusCode != http.StatusOK {
 		t.Errorf("silent node detail: status %d, want 200", res.StatusCode)
 	}
+
+	// A measurement to it outlives the node limit, but the link leaves the map
+	// with the node rather than end on nothing.
+	id, fwd := ingest.NewLinkID(f.a, keyFor(0x44))
+	f.aggregator.Add(&ingest.Decoded{Samples: []ingest.Sample{{
+		At: time.Now().Add(-72 * time.Hour), AKey: id.A, BKey: id.B, Forward: fwd,
+		Kind: ingest.KindMeasured, SNR: ptrF(4), ObserverKey: f.a,
+	}}})
+	_, body = f.get(t, "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85")
+	if strings.Contains(string(body), keyFor(0x44)) {
+		t.Error("a link to a silent node is still on the map")
+	}
+	_, body = f.get(t, "/api/nodes/"+f.a)
+	if strings.Contains(string(body), keyFor(0x44)) {
+		t.Error("a silent node is still listed as a neighbour")
+	}
 }
 
 type fakeProfiler struct {

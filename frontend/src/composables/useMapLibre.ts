@@ -25,6 +25,7 @@ import {
   viewRange,
   type AltitudeRange,
 } from '@/map/elevation'
+import type { MapView } from '@/map/savedView'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
@@ -681,6 +682,8 @@ export interface UseMapOptions {
   center?: [number, number]
   zoom?: number
   onMoveEnd: (bbox: BBox) => void
+  /** Centre and zoom after every move, to restore the view on the next visit. */
+  onViewChange?: (view: MapView) => void
   onSelectLink: (linkId: string | null) => void
   onSelectNode: (key: string | null) => void
 }
@@ -750,6 +753,8 @@ export function useMapLibre(opts: UseMapOptions) {
     map.on('moveend', () => {
       if (!map) return
       opts.onMoveEnd(bboxOf(map))
+      const c = map.getCenter()
+      opts.onViewChange?.({ center: [c.lng, c.lat], zoom: map.getZoom() })
       if (opts.altitude.value) scheduleAltitudeStretch()
     })
 

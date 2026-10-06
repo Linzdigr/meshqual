@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/api/types'
 import { useMapLibre, type Padding } from '@/composables/useMapLibre'
 import type { AltitudeRange } from '@/map/elevation'
+import { loadView, saveView } from '@/map/savedView'
 import type { ViewMode } from '@/map/lanes'
 import type { SnrPalette } from '@/styles/scale'
 
@@ -40,8 +41,15 @@ const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
 const retentionRef = ref(props.measureRetentionSec)
 
+// The view the user left on their last visit, if any: it wins over framing
+// the whole mesh, so a reload lands where they were.
+const savedView = loadView()
+
 const map = useMapLibre({
   container,
+  center: savedView?.center,
+  zoom: savedView?.zoom,
+  onViewChange: saveView,
   dark: darkRef,
   thresholds: thresholdsRef,
   mode: modeRef,
@@ -65,7 +73,7 @@ onMounted(() => map.mount())
  */
 let autoFitted = false
 function autoFit(fc: FeatureCollection<NodeProperties>) {
-  if (props.noAutoFit || autoFitted || fc.features.length < 2) return
+  if (props.noAutoFit || savedView || autoFitted || fc.features.length < 2) return
   let minLng = Infinity
   let minLat = Infinity
   let maxLng = -Infinity

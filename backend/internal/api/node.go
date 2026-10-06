@@ -69,7 +69,7 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	links := s.d.Aggregator.Snapshot()
+	links := s.liveLinks()
 	an := s.analysis(links)
 
 	var last time.Time

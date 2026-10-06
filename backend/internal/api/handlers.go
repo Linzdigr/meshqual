@@ -72,7 +72,7 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 	fc := newCollection(len(nodes))
 	noPos := 0
 	for _, n := range nodes {
-		if s.d.NodeMaxAge > 0 && time.Since(n.LastHeard) > s.d.NodeMaxAge {
+		if s.silent(n) {
 			continue // silent too long: off the map, still known for resolution
 		}
 		if !n.HasPosition() {
@@ -111,7 +111,7 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	links := s.d.Aggregator.Snapshot()
+	links := s.liveLinks()
 	fc := newCollection(len(links))
 	noPos := 0
 
@@ -321,4 +321,27 @@ func nodeProps(n ingest.Node) map[string]any {
 		p["pathHashSize"] = n.PathHashSize
 	}
 	return p
+}
+
+// silent reports a node not heard for NodeMaxAge: it is off the map, though
+// still known for path resolution.
+func (s *Server) silent(n ingest.Node) bool {
+	return s.d.NodeMaxAge > 0 && time.Since(n.LastHeard) > s.d.NodeMaxAge
+}
+
+// liveLinks is every link the map shows: a link to a silent node goes with it.
+// Measurements outlive the node age limit (MeasureRetention), so without this
+// a link would end on a node no longer drawn.
+func (s *Server) liveLinks() []ingest.LinkView {
+	all := s.d.Aggregator.Snapshot()
+	out := all[:0]
+	for _, l := range all {
+		na, okA := s.d.Resolver.Get(l.AKey)
+		nb, okB := s.d.Resolver.Get(l.BKey)
+		if (okA && s.silent(na)) || (okB && s.silent(nb)) {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }
