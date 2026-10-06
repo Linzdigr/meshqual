@@ -26,6 +26,7 @@ import {
   type AltitudeRange,
 } from '@/map/elevation'
 import type { MapView } from '@/map/savedView'
+import { issueFilter, NODE_ISSUES, type NodeIssue } from '@/map/nodeIssues'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
@@ -37,6 +38,7 @@ export const LANES_SOURCE = 'lanes'
 export const FOCUS_LABELS_SOURCE = 'focus-labels'
 const PROFILE_MARK_SOURCE = 'profile-mark'
 const TRACE_PATH_SOURCE = 'trace-path'
+const TRACE_LABELS_SOURCE = 'trace-labels'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
@@ -55,6 +57,7 @@ const LAYER_PROFILE_MARK = 'profile-mark'
 const LAYER_TRACE_LINE = 'trace-path-line'
 const LAYER_TRACE_STOPS = 'trace-path-stops'
 const LAYER_TRACE_NUMBERS = 'trace-path-numbers'
+const LAYER_TRACE_LABELS = 'trace-labels'
 
 /**
  * Tile source. OpenStreetMap's own tiles carry a usage policy that forbids
@@ -120,8 +123,6 @@ interface ActiveProperties {
 const CHEVRON = 'chevron'
 const WARN = 'warn-1byte'
 
-/** Nodes still on 1-byte path hashes, the width that collides most. */
-const ONE_BYTE_HASH: ExpressionSpecification = ['==', ['get', 'pathHashSize'], 1]
 
 /**
  * The ⚠ sign as an image: a yellow triangle with a dark "!". Drawn rather than
@@ -331,6 +332,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [PROFILE_MARK_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [TRACE_PATH_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [TRACE_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ALTITUDE_SOURCE]: {
         type: 'raster-dem',
         tiles: [TERRARIUM_URL],
@@ -574,7 +576,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       id: LAYER_NODE_WARN,
       type: 'symbol' as const,
       source: NODES_SOURCE,
-      filter: ONE_BYTE_HASH,
+      filter: issueFilter(NODE_ISSUES), // narrowed by applyView to the enabled issues
       layout: {
         'icon-image': WARN,
         'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.75, 12, 1] as ExpressionSpecification,
@@ -633,7 +635,8 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       source: TRACE_PATH_SOURCE,
       filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
       paint: {
-        'circle-radius': 9,
+        // Wide enough for "1|3": grows with the text.
+        'circle-radius': ['+', 6, ['*', 3, ['length', ['get', 'n']]]] as ExpressionSpecification,
         'circle-color': dark ? '#3987e5' : '#2a78d6',
         'circle-stroke-color': surface,
         'circle-stroke-width': 2,
@@ -651,6 +654,27 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-ignore-placement': true,
       },
       paint: { 'text-color': '#ffffff' },
+    },
+    // The SNR a returned trace measured on each of its links, laid out like the
+    // selected link's labels but shown in every view: the user asked for it.
+    {
+      id: LAYER_TRACE_LABELS,
+      type: 'symbol' as const,
+      source: TRACE_LABELS_SOURCE,
+      layout: {
+        'text-field': ['get', 'text'] as ExpressionSpecification,
+        'text-size': 12.5,
+        'text-max-width': 60,
+        'text-anchor': ['get', 'anchor'] as ExpressionSpecification,
+        'text-offset': ['get', 'offset'] as ExpressionSpecification,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': ['get', 'color'] as ExpressionSpecification,
+        'text-halo-color': surface,
+        'text-halo-width': 2,
+      },
     },
     // The point under the pointer on the line-of-sight chart, placed on the link.
     {
@@ -721,6 +745,8 @@ export interface UseMapOptions {
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
   palette: Ref<SnrPalette>
+  /** Node configuration issues the ⚠ flags. */
+  issues: Ref<NodeIssue[]>
   /** How long a link keeps its signal values; links fade over it. */
   measureRetentionSec: Ref<number>
   /** Altitude as a colour ramp under the links. */
@@ -964,6 +990,7 @@ export function useMapLibre(opts: UseMapOptions) {
     const functional = opts.mode.value === 'functional'
     const only = asym && opts.asymOnly.value
     const show = (id: string, on: boolean) => m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
+    m.setFilter(LAYER_NODE_WARN, issueFilter(opts.issues.value))
     show(LAYER_MEASURED, !asym)
     show(LAYER_LANES, asym)
     show(LAYER_LANES_MISSING, asym)
@@ -1224,6 +1251,7 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_TRACE_LABELS,
       LAYER_TRACE_NUMBERS,
       LAYER_TRACE_STOPS,
       LAYER_TRACE_LINE,
@@ -1252,6 +1280,7 @@ export function useMapLibre(opts: UseMapOptions) {
     applyView()
     applyFocus()
     updateFocusLabels()
+    setTraceLabels(traceHops) // colours follow the theme
     syncActive()
   }
 
@@ -1351,6 +1380,38 @@ export function useMapLibre(opts: UseMapOptions) {
     syncActive()
   }
 
+  let traceHops: { from: string; to: string; snr?: number }[] = []
+
+  /**
+   * Labels every link of a returned trace with the SNR measured each way, as
+   * if each were the selected link: the A → B reading on one side in A's
+   * colour, B → A on the other in B's. An empty list clears them.
+   */
+  function setTraceLabels(hops: { from: string; to: string; snr?: number }[]) {
+    traceHops = hops
+    const src = map?.getSource(TRACE_LABELS_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    const dark = opts.dark.value
+    const features: Feature<FocusLabel, Point>[] = []
+    for (const h of hops) {
+      if (h.snr === undefined || h.from === h.to) continue
+      const forward = h.from <= h.to
+      const a = nodeCoords(forward ? h.from : h.to)
+      const b = nodeCoords(forward ? h.to : h.from)
+      if (!a || !b) continue
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] },
+        properties: {
+          text: `${h.snr.toFixed(1)} dB`,
+          color: forward ? (dark ? NODE_A_DARK : NODE_A_LIGHT) : dark ? NODE_B_DARK : NODE_B_LIGHT,
+          ...focusSide(screenAngle(a, b), forward ? 1 : -1),
+        },
+      })
+    }
+    src.setData({ type: 'FeatureCollection', features } as never)
+  }
+
   /** Draws the path being built for a trace: a dashed line and numbered stops. */
   function setTracePath(start: string | null, keys: string[]) {
     const src = map?.getSource(TRACE_PATH_SOURCE) as maplibregl.GeoJSONSource | undefined
@@ -1361,9 +1422,13 @@ export function useMapLibre(opts: UseMapOptions) {
     if (line.length >= 2) {
       features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } })
     }
-    stops.forEach((c, i) => {
-      if (c) features.push({ type: 'Feature', properties: { n: String(i + 1) }, geometry: { type: 'Point', coordinates: c } })
-    })
+    // One badge per node, listing every step it is on: "1|3" out and back.
+    const steps = new Map<string, number[]>()
+    keys.forEach((k, i) => steps.set(k, [...(steps.get(k) ?? []), i + 1]))
+    for (const [k, idx] of steps) {
+      const c = nodeCoords(k)
+      if (c) features.push({ type: 'Feature', properties: { n: idx.join('|') }, geometry: { type: 'Point', coordinates: c } })
+    }
     src.setData({ type: 'FeatureCollection', features } as never)
   }
 
@@ -1399,6 +1464,7 @@ export function useMapLibre(opts: UseMapOptions) {
     markOnLink,
     animateHops,
     setTracePath,
+    setTraceLabels,
     focusLink,
     focusPoints,
   }

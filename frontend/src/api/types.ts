@@ -59,6 +59,8 @@ export interface NodeProperties {
   nodeType: 'none' | 'companion' | 'repeater' | 'room' | 'sensor' | string
   /** Path hash width (bytes) the node uses, from its adverts; absent until one is seen. */
   pathHashSize?: number
+  /** Whether its flood adverts go out under a default region; absent until one is seen. */
+  regionScope?: 'none' | 'set'
 }
 
 export interface CollectionMeta {
@@ -183,6 +185,8 @@ export interface NodeInfo {
   lat: number | null
   lon: number | null
   pathHashSize?: number
+  /** Whether its flood adverts go out under a default region; absent until one is seen. */
+  regionScope?: 'none' | 'set'
 }
 
 export interface NodeNeighbor extends NodeInfo {
@@ -251,7 +255,10 @@ export interface LinkProfile {
   /** Why it is unavailable: outside the elevation model, or too short. */
   reason?: 'no_coverage' | 'too_short'
   freqMHz?: number
+  /** The server's default antenna height, and the heights used at A and B. */
   antennaM?: number
+  antennaAM?: number
+  antennaBM?: number
   result?: {
     distKm: number
     points: ProfileSample[]

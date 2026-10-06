@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/yvanferez/meshqual/backend/internal/geo"
 	"github.com/yvanferez/meshqual/backend/internal/los"
@@ -48,7 +49,9 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadGateway, "elevation service unavailable")
 		return
 	}
-	res, ok := los.Analyze(pts, s.d.LosParams)
+	antA := heightParam(r, "antA", s.d.LosParams.AntennaM)
+	antB := heightParam(r, "antB", s.d.LosParams.AntennaM)
+	res, ok := los.AnalyzeHeights(pts, s.d.LosParams, antA, antB)
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{"available": false, "reason": "too_short"})
 		return
@@ -57,6 +60,21 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 		"available": true,
 		"freqMHz":   s.d.LosParams.FreqMHz,
 		"antennaM":  s.d.LosParams.AntennaM,
+		"antennaAM": antA,
+		"antennaBM": antB,
 		"result":    res,
 	})
+}
+
+// maxAntennaM bounds a user-given antenna height: a tall mast, not a typo.
+const maxAntennaM = 300
+
+// heightParam reads an antenna height in metres above ground, clamped to
+// [0, maxAntennaM]; def when absent or unreadable.
+func heightParam(r *http.Request, name string, def float64) float64 {
+	v, err := strconv.ParseFloat(r.URL.Query().Get(name), 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return def
+	}
+	return math.Max(0, math.Min(maxAntennaM, v))
 }

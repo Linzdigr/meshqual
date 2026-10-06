@@ -17,6 +17,7 @@ import type {
 } from '@/api/types'
 import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
 import { isAsymmetric, isFunctional, type ViewMode } from '@/map/lanes'
+import { NODE_ISSUES, nodeIssues, type NodeIssue } from '@/map/nodeIssues'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
 
@@ -27,6 +28,8 @@ interface ViewPrefs {
   asymOnly: boolean
   palette: SnrPalette
   altitude: boolean
+  /** Node issues the ⚠ flags; the legend switches each off. */
+  issues: NodeIssue[]
 }
 
 /** View preferences are per browser; storage may be unavailable, so it is optional. */
@@ -38,9 +41,25 @@ function loadView(): ViewPrefs {
       asymOnly: v.asymOnly === true,
       palette: v.palette === 'traffic' ? 'traffic' : 'blue',
       altitude: v.altitude === true,
+      issues: Array.isArray(v.issues)
+        ? NODE_ISSUES.filter((i) => (v.issues as unknown[]).includes(i))
+        : [...NODE_ISSUES],
     }
   } catch {
-    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false }
+    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false, issues: [...NODE_ISSUES] }
+  }
+}
+
+const ANTENNA_KEY = 'meshqual.antennas'
+
+function loadAntennas(): Record<string, number> {
+  try {
+    const v = JSON.parse(localStorage.getItem(ANTENNA_KEY) ?? '{}') as Record<string, unknown>
+    const out: Record<string, number> = {}
+    for (const [k, m] of Object.entries(v)) if (typeof m === 'number' && m >= 0 && m <= 300) out[k] = m
+    return out
+  } catch {
+    return {}
   }
 }
 
@@ -77,11 +96,18 @@ export const useMeshStore = defineStore('mesh', () => {
   const asymOnly = ref(savedView.asymOnly)
   const palette = ref<SnrPalette>(savedView.palette)
   const altitude = ref(savedView.altitude)
-  watch([viewMode, asymOnly, palette, altitude], ([mode, only, pal, alt]) => {
+  const issues = ref<NodeIssue[]>(savedView.issues)
+  watch([viewMode, asymOnly, palette, altitude, issues], ([mode, only, pal, alt, iss]) => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt }))
+      localStorage.setItem(
+        VIEW_KEY,
+        JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt, issues: iss }),
+      )
     } catch {}
   })
+  function toggleIssue(i: NodeIssue) {
+    issues.value = issues.value.includes(i) ? issues.value.filter((x) => x !== i) : [...issues.value, i]
+  }
   // The CSS ramp variables (legend, frame table) switch on this attribute; the
   // map gets the same palette through its own props.
   watch(
@@ -108,10 +134,12 @@ export const useMeshStore = defineStore('mesh', () => {
   const functionalCount = computed(
     () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
   )
-  /** Nodes in view whose adverts show 1-byte path hashes (flagged ⚠ on the map). */
-  const oneByteHashCount = computed(
-    () => nodes.value.features.filter((f) => f.properties.pathHashSize === 1).length,
-  )
+  /** Nodes in view per configuration issue (flagged ⚠ on the map). */
+  const issueCounts = computed(() => {
+    const c: Record<NodeIssue, number> = { hash1: 0, noRegion: 0 }
+    for (const f of nodes.value.features) for (const i of nodeIssues(f.properties)) c[i]++
+    return c
+  })
   const asymmetricCount = computed(
     () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
   )
@@ -192,14 +220,41 @@ export const useMeshStore = defineStore('mesh', () => {
     }
   }
 
+  /**
+   * Antenna heights the user gave, per node key, in metres above ground. Kept
+   * per browser: masts do not move, and the server only knows a default.
+   */
+  const antennas = ref<Record<string, number>>(loadAntennas())
+  let profileSeq = 0
+  let antennaTimer = 0
+
   async function loadProfile(linkId: string) {
-    profile.value = { state: 'loading' }
+    const seq = ++profileSeq
+    // A height change keeps the chart up while the new one computes.
+    if (profile.value?.state !== 'ready') profile.value = { state: 'loading' }
+    const [a, b] = linkId.split(':')
     try {
-      const data = await api.profile(linkId)
-      if (selectedLinkId.value === linkId) profile.value = { state: 'ready', data }
+      const data = await api.profile(linkId, { antA: antennas.value[a!], antB: antennas.value[b!] })
+      if (seq === profileSeq && selectedLinkId.value === linkId) profile.value = { state: 'ready', data }
     } catch {
-      if (selectedLinkId.value === linkId) profile.value = { state: 'error' }
+      if (seq === profileSeq && selectedLinkId.value === linkId) profile.value = { state: 'error' }
     }
+  }
+
+  /** Sets a node's antenna height (null: back to the default) and redraws the profile. */
+  function setAntenna(key: string, metres: number | null) {
+    const next = { ...antennas.value }
+    if (metres === null || !Number.isFinite(metres)) delete next[key]
+    else next[key] = Math.max(0, Math.min(300, metres))
+    antennas.value = next
+    try {
+      localStorage.setItem(ANTENNA_KEY, JSON.stringify(next))
+    } catch {}
+    const id = selectedLinkId.value
+    if (!id || !id.split(':').includes(key)) return
+    // Typing 1, 12, 120 should not send three requests.
+    window.clearTimeout(antennaTimer)
+    antennaTimer = window.setTimeout(() => void loadProfile(id), 350)
   }
 
   async function selectLink(linkId: string | null) {
@@ -274,6 +329,8 @@ export const useMeshStore = defineStore('mesh', () => {
     frames,
     history,
     profile,
+    antennas,
+    setAntenna,
     bbox,
     kinds,
     minSamples,
@@ -285,7 +342,9 @@ export const useMeshStore = defineStore('mesh', () => {
     measureRetentionSec,
     asymmetricCount,
     functionalCount,
-    oneByteHashCount,
+    issueCounts,
+    issues,
+    toggleIssue,
     loading,
     error,
     lastRefresh,

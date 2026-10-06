@@ -207,7 +207,7 @@ const counts = computed(() => {
 /** While a trace path is being picked, a node click adds it to the path. */
 function onSelectNode(key: string | null) {
   if (trace.selecting) {
-    if (key) trace.toggleNode(key)
+    if (key) trace.pickNode(key)
     return
   }
   store.selectNode(key)
@@ -221,6 +221,13 @@ watch(
     store.selectLink(null)
     store.selectNode(null)
   },
+)
+
+// A returned trace labels its links on the map while its result is shown:
+// a new path, a new run or closing the panel takes them away.
+watch(
+  () => [trace.result, trace.open] as const,
+  ([r, open]) => meshMap.value?.setTraceLabels(open && r?.ok ? r.hops : []),
 )
 
 function runTrace() {
@@ -291,6 +298,7 @@ watch(
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
         :measure-retention-sec="store.measureRetentionSec"
+        :issues="store.issues"
         :altitude="store.altitude"
         :no-auto-fit="deepLink"
         :trace-path="trace.selecting || trace.running ? trace.path : []"
@@ -323,7 +331,9 @@ watch(
           :palette="store.palette"
           :functional-count="store.functionalCount"
           :retention-days="Math.round(store.measureRetentionSec / 86400)"
-          :one-byte-hash-count="store.oneByteHashCount"
+          :issue-counts="store.issueCounts"
+          :issues="store.issues"
+          @toggle-issue="store.toggleIssue"
           v-model:open="legendOpen"
           @toggle="onToggleKind"
           @set-mode="(m) => (store.viewMode = m)"
@@ -353,6 +363,7 @@ watch(
           :profile="store.profile"
           @close="store.selectLink(null)"
           @profile-hover="(f) => meshMap?.markOnLink(store.selectedLinkId, f)"
+          @set-antenna="store.setAntenna"
         />
       </div>
     </main>

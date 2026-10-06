@@ -477,3 +477,43 @@ func TestResolverDropsImpossiblePositions(t *testing.T) {
 		t.Error("dropped a valid position")
 	}
 }
+
+// A flood advert tells whether its originator has a default region: scoped
+// adverts go out as TRANSPORT_FLOOD, unscoped ones as plain FLOOD. A zero-hop
+// advert says nothing and leaves what is known.
+func TestAdvertRecordsRegionScope(t *testing.T) {
+	r := NewResolver()
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(0x20 + i)
+	}
+	var payload []byte
+	payload = append(payload, pub...)
+	payload = binary.LittleEndian.AppendUint32(payload, 1789825821)
+	payload = append(payload, make([]byte, 64)...)
+	payload = append(payload, meshcore.AdvTypeRepeater|0x80)
+	payload = append(payload, []byte("rpt")...)
+	key := hexUp(pub)
+
+	unscoped := append([]byte{hdr(meshcore.RouteFlood, meshcore.PayloadAdvert), plen(0, 2)}, payload...)
+	// TRANSPORT_FLOOD carries two 2-byte transport codes before path_len.
+	scoped := append([]byte{hdr(meshcore.RouteTransportFlood, meshcore.PayloadAdvert), 0x34, 0x12, 0, 0, plen(0, 2)}, payload...)
+	zeroHop := append([]byte{hdr(meshcore.RouteDirect, meshcore.PayloadAdvert), 0x00}, payload...)
+
+	for _, step := range []struct {
+		raw  []byte
+		want RegionScope
+	}{
+		{zeroHop, ScopeUnknown},
+		{unscoped, ScopeNone},
+		{zeroHop, ScopeNone},
+		{scoped, ScopeSet},
+	} {
+		if _, err := Decode(source.Observation{Raw: step.raw, ReceivedAt: time.Now()}, r); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := r.Get(key); n.RegionScope != step.want {
+			t.Fatalf("RegionScope = %v, want %v", n.RegionScope, step.want)
+		}
+	}
+}

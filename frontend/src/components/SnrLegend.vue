@@ -4,6 +4,7 @@ import { snrBuckets, type SnrPalette } from '@/styles/scale'
 import type { LinkKind } from '@/api/types'
 import type { ViewMode } from '@/map/lanes'
 import WarnIcon from './WarnIcon.vue'
+import type { NodeIssue } from '@/map/nodeIssues'
 
 const props = defineProps<{
   thresholds: number[]
@@ -15,7 +16,9 @@ const props = defineProps<{
   asymThreshold: number
   palette: SnrPalette
   functionalCount: number
-  oneByteHashCount: number
+  /** Nodes in view per configuration issue, and the issues the ⚠ flags. */
+  issueCounts: Record<NodeIssue, number>
+  issues: NodeIssue[]
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
   /** How long a measurement stays on the map, in days. */
@@ -28,6 +31,7 @@ const emit = defineEmits<{
   toggleAsymOnly: []
   setPalette: [SnrPalette]
   'update:open': [boolean]
+  toggleIssue: [NodeIssue]
 }>()
 
 const palettes: { id: SnrPalette; label: string; hint: string }[] = [
@@ -155,14 +159,28 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
       </div>
 
       <div class="block">
-      <p class="hashwarn" title="Ces nœuds émettent des hashs de chemin sur 1 octet : 256 valeurs seulement, d'où des collisions qui empêchent d'attribuer les sauts.">
+      <p class="hashwarn">
         <WarnIcon />
-        <span>Nœud en hash de chemin 1 octet</span>
-        <span class="mono count">{{ oneByteHashCount }}</span>
+        <span>Nœud à configurer</span>
       </p>
+      <label class="only issue">
+        <input type="checkbox" :checked="issues.includes('hash1')" @change="emit('toggleIssue', 'hash1')" />
+        <span>Hash de chemin sur 1 octet</span>
+        <span class="mono count">{{ issueCounts.hash1 }}</span>
+      </label>
       <p class="caveat">
-        Lu dans leurs annonces relayées. Sur 1 octet, les hashs se confondent souvent : passer le
-        nœud en 2 octets (<code>set path.hash.mode 1</code>) evite ces collisions.
+        256 valeurs seulement : les hashs se confondent et les sauts ne s'attribuent plus. Passer en
+        2 octets : <code>set path.hash.mode 1</code>.
+      </p>
+      <label class="only issue">
+        <input type="checkbox" :checked="issues.includes('noRegion')" @change="emit('toggleIssue', 'noRegion')" />
+        <span>Sans région par défaut</span>
+        <span class="mono count">{{ issueCounts.noRegion }}</span>
+      </label>
+      <p class="caveat">
+        Répéteurs et room servers dont les annonces partent sans région : les répéteurs réglés en
+        <code>region denyf *</code> les ignorent. Régler <code>region default &lt;nom&gt;</code> puis
+        <code>region save</code>.
       </p>
     </div>
 
@@ -390,6 +408,17 @@ ul {
 
 .hashwarn .warn {
   justify-self: center;
+}
+
+/* The issue switches sit under the ⚠ title, aligned with its text. */
+.only.issue {
+  margin-top: 6px;
+  padding-left: 30px;
+}
+
+.only.issue + .caveat {
+  margin-top: 3px;
+  padding-left: 30px;
 }
 
 .palettes {

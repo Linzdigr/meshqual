@@ -62,8 +62,14 @@ type Result struct {
 }
 
 // Analyze computes the line of sight over a profile ordered from one end to
-// the other. It needs at least the two end points.
+// the other, with p.AntennaM at both ends. It needs at least the two end points.
 func Analyze(profile []Point, p Params) (Result, bool) {
+	return AnalyzeHeights(profile, p, p.AntennaM, p.AntennaM)
+}
+
+// AnalyzeHeights is Analyze with each end's antenna height given: masts are
+// rarely the same height, and the user knows them better than any default.
+func AnalyzeHeights(profile []Point, p Params, antA, antB float64) (Result, bool) {
 	n := len(profile)
 	if n < 2 || p.FreqMHz <= 0 {
 		return Result{}, false
@@ -77,8 +83,8 @@ func Analyze(profile []Point, p Params) (Result, bool) {
 		return Result{}, false
 	}
 	lambda := speedOfLight / (p.FreqMHz * 1e6)
-	hA := profile[0].GroundM + p.AntennaM
-	hB := profile[n-1].GroundM + p.AntennaM
+	hA := profile[0].GroundM + antA
+	hB := profile[n-1].GroundM + antB
 
 	res := Result{DistanceKm: round(total/1000, 3), Clearance: math.Inf(1)}
 	res.Samples = make([]Sample, n)

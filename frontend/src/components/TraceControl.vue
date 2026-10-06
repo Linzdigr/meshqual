@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
-import { useTraceStore } from '@/stores/trace'
+import { MAX_TRACE_HOPS, useTraceStore } from '@/stores/trace'
 
 const emit = defineEmits<{ run: [] }>()
 
@@ -19,6 +19,9 @@ function nameOf(key: string): string {
 const fmtDb = (v: number) => `${v.toFixed(2).replace('.', ',').replace(/,?0+$/, '')} dB`
 
 const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
+
+/** The path does not come back to where it started: the companion may not hear its end. */
+const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace.path.at(-1))
 </script>
 
 <template>
@@ -33,17 +36,18 @@ const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
       aria-controls="trace-panel"
       @click="trace.open = !trace.open"
     >
+      <!-- A radio on the air: the companion, not the mesh or a share. -->
       <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <circle cx="4" cy="15" r="2" />
-        <circle cx="10" cy="5" r="2" />
-        <circle cx="16" cy="13" r="2" />
-        <path d="M5.2 13.3 8.8 6.7M11.4 6.5l3.3 4.8" />
+        <circle cx="10" cy="8" r="1.6" />
+        <path d="M10 9.6V18M7 15.5h6" />
+        <path d="M6.6 4.6a4.8 4.8 0 0 0 0 6.8M13.4 4.6a4.8 4.8 0 0 1 0 6.8" />
+        <path d="M4.2 2.2a8.2 8.2 0 0 0 0 11.6M15.8 2.2a8.2 8.2 0 0 1 0 11.6" />
       </svg>
     </button>
 
     <section v-if="trace.open" id="trace-panel" class="panel" aria-label="Trace">
       <header>
-        <h3>Trace</h3>
+        <h3>Trace (EXPERIMENTAL)</h3>
         <button type="button" class="close" aria-label="Fermer" @click="trace.open = false">✕</button>
       </header>
 
@@ -86,20 +90,37 @@ const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
           <button type="button" class="link" @click="trace.disconnect()">Déconnecter</button>
         </p>
         <p class="note">
-          Cliquez les nœuds dans l'ordre, en partant d'un voisin du compagnon. La trace fait l'aller-retour
-          et mesure les deux sens de chaque lien.
+          Cliquez les nœuds dans l'ordre de l'aller puis du retour, en partant d'un voisin du compagnon.
+          Un nœud peut revenir au retour ; recliquer le dernier l'annule.
         </p>
 
         <ol v-if="trace.path.length" class="path">
-          <li v-for="(k, i) in trace.path" :key="k">
+          <li v-for="(k, i) in trace.path" :key="i">
             <span class="n mono">{{ i + 1 }}</span>
             <span class="name">{{ nameOf(k) }}</span>
-            <button type="button" class="x" :aria-label="`Retirer ${nameOf(k)}`" @click="trace.toggleNode(k)">
+            <button type="button" class="x" :aria-label="`Retirer l'étape ${i + 1}`" @click="trace.removeAt(i)">
               ✕
             </button>
           </li>
         </ol>
         <p v-else class="empty">Aucun nœud sélectionné.</p>
+
+        <button
+          v-if="trace.path.length > 1 && !trace.isRoundTrip"
+          type="button"
+          class="link back"
+          :disabled="trace.path.length * 2 - 1 > MAX_TRACE_HOPS"
+          @click="trace.completeReturn()"
+        >
+          ↩ Retour par le même chemin
+        </button>
+        <p v-if="endsAway" class="warn">
+          La trace se termine sur {{ nameOf(trace.path.at(-1)!) }} : le compagnon doit l'entendre pour
+          recevoir le résultat.
+        </p>
+        <p v-if="trace.path.length >= MAX_TRACE_HOPS" class="warn">
+          {{ MAX_TRACE_HOPS }} étapes au plus : le paquet ne peut pas en porter davantage.
+        </p>
 
         <div class="row">
           <button type="button" class="btn primary" :disabled="!trace.canRun" @click="emit('run')">
@@ -113,7 +134,7 @@ const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
         <div v-if="trace.result" class="result" :class="trace.result.ok ? 'ok' : 'ko'" role="status">
           <p class="verdict">
             <strong>{{ trace.result.ok ? 'OK' : 'KO' }}</strong>
-            {{ trace.result.ok ? 'la trace est revenue' : trace.result.reason }}
+            {{ trace.result.ok ? ' - trace complète' : trace.result.reason }}
           </p>
           <ul v-if="hops.length" class="hops">
             <li v-for="(h, i) in hops" :key="i">
@@ -305,6 +326,18 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.back {
+  align-self: flex-start;
+  margin-left: 0;
+  font-size: 11.5px;
+}
+
+.warn {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--status-warning);
 }
 
 .result {

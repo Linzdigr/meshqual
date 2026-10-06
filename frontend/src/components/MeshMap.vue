@@ -4,6 +4,7 @@ import type { BBox, FeatureCollection, LinkProperties, NodeProperties } from '@/
 import { useMapLibre, type Padding } from '@/composables/useMapLibre'
 import type { AltitudeRange } from '@/map/elevation'
 import { loadView, saveView } from '@/map/savedView'
+import type { NodeIssue } from '@/map/nodeIssues'
 import type { ViewMode } from '@/map/lanes'
 import type { SnrPalette } from '@/styles/scale'
 
@@ -19,6 +20,7 @@ const props = defineProps<{
   asymThreshold: number
   palette: SnrPalette
   measureRetentionSec: number
+  issues: NodeIssue[]
   altitude: boolean
   /** Nodes picked for a trace, in order, and the companion it starts from. */
   tracePath: string[]
@@ -43,6 +45,7 @@ const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
 const retentionRef = ref(props.measureRetentionSec)
+const issuesRef = ref(props.issues)
 
 // The view the user left on their last visit, if any: it wins over framing
 // the whole mesh, so a reload lands where they were.
@@ -61,6 +64,7 @@ const map = useMapLibre({
   palette: paletteRef,
   altitude: altitudeRef,
   measureRetentionSec: retentionRef,
+  issues: issuesRef,
   onAltitudeRange: (r) => emit('altitudeRange', r),
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
@@ -112,6 +116,13 @@ watch(
 )
 watch(() => props.selectedNodeKey, (key) => map.highlightNode(key))
 watch(
+  () => props.issues,
+  (i) => {
+    issuesRef.value = i
+    map.applyView()
+  },
+)
+watch(
   () => props.measureRetentionSec,
   (sec) => {
     retentionRef.value = sec
@@ -133,6 +144,8 @@ defineExpose({
   focusPoints: (points: [number, number][], padding: Padding) => map.focusPoints(points, padding),
   /** Puts a point a fraction of the way along a link, or clears it with null. */
   markOnLink: (linkId: string | null, fraction: number | null) => map.markOnLink(linkId, fraction),
+  /** Labels the links of a returned trace with its SNR readings; [] clears them. */
+  setTraceLabels: (hops: { from: string; to: string; snr?: number }[]) => map.setTraceLabels(hops),
   /** Plays trace legs with the live-packet animation. */
   animateHops: (hops: { from: string; to: string; snr?: number }[]) => map.animateHops(hops),
 })

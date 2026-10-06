@@ -22,6 +22,8 @@ const emit = defineEmits<{
   close: []
   /** Pointer over the line-of-sight chart, as a fraction from A to B; null when it leaves. */
   profileHover: [number | null]
+  /** A node's antenna height for the line of sight, in metres; null resets it. */
+  setAntenna: [string, number | null]
 }>()
 
 /**
@@ -398,6 +400,7 @@ const tiles = computed(() => {
           :a-name="names.a"
           :b-name="names.b"
           @hover="(f) => emit('profileHover', f)"
+          @set-antenna="(end, m) => link && emit('setAntenna', end === 'a' ? link.aKey : link.bKey, m)"
         />
       </section>
 

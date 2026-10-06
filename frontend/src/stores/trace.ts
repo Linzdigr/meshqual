@@ -31,6 +31,8 @@ export type TraceResult =
   | { ok: false; reason: string; at: number }
 
 const REPLY_TIMEOUT_MS = 5_000
+/** A trace path holds at most 64 bytes of hashes: 32 hops at 2 bytes. */
+export const MAX_TRACE_HOPS = 32
 /** Slack on top of the firmware's own round-trip estimate. */
 const TRACE_MARGIN_MS = 4_000
 
@@ -60,6 +62,8 @@ export const useTraceStore = defineStore('trace', () => {
 
   const selecting = computed(() => open.value && status.value === 'connected')
   const canRun = computed(() => selecting.value && path.value.length > 0 && !running.value)
+  /** The path reads the same both ways: its return already retraces the outbound. */
+  const isRoundTrip = computed(() => path.value.join() === [...path.value].reverse().join())
 
   function onFrame(f: Uint8Array) {
     const w = waiters.find((x) => x.match(f))
@@ -122,9 +126,26 @@ export const useTraceStore = defineStore('trace', () => {
     onClose()
   }
 
-  /** Adds a node to the end of the path, or takes it out if already there. */
-  function toggleNode(key: string) {
-    path.value = path.value.includes(key) ? path.value.filter((k) => k !== key) : [...path.value, key]
+  /**
+   * Adds a node to the end of the path, even one already on it: the return
+   * leg is the user's to choose. Clicking the last node again takes it back,
+   * since a node cannot relay to itself.
+   */
+  function pickNode(key: string) {
+    if (path.value.at(-1) === key) path.value = path.value.slice(0, -1)
+    else if (path.value.length < MAX_TRACE_HOPS) path.value = [...path.value, key]
+    result.value = null
+  }
+
+  function removeAt(i: number) {
+    path.value = path.value.filter((_, j) => j !== i)
+    result.value = null
+  }
+
+  /** Appends the way back along the same nodes: A B C becomes A B C B A. */
+  function completeReturn() {
+    const rt = roundTrip(path.value)
+    if (rt.length <= MAX_TRACE_HOPS) path.value = rt
     result.value = null
   }
 
@@ -134,9 +155,9 @@ export const useTraceStore = defineStore('trace', () => {
   }
 
   /**
-   * Sends the trace and waits for it to come back. `animate` gets the legs to
-   * show on the map: the outbound ones when it leaves, the return ones (with
-   * their SNR) when it is back.
+   * Sends the trace along the path exactly as picked and waits for it to come
+   * back. `animate` gets the legs to show on the map: the first half when it
+   * leaves, the rest (with every leg's SNR) when it is back.
    */
   async function run(animate: (hops: TraceHop[]) => void) {
     const t = transport.value
@@ -149,11 +170,12 @@ export const useTraceStore = defineStore('trace', () => {
       running.value = false
     }
     try {
-      const keys = roundTrip(path.value)
+      const keys = path.value
       // Every node the trace visits, from the companion and back to it.
       const visits = [self.publicKey, ...keys, self.publicKey]
       const hops: TraceHop[] = visits.slice(1).map((to, i) => ({ from: visits[i]!, to }))
-      const outbound = hops.slice(0, path.value.length)
+      const half = Math.ceil(hops.length / 2)
+      const outbound = hops.slice(0, half)
 
       const tag = crypto.getRandomValues(new Uint32Array(1))[0]!
       const ack = waitFor((f) => f[0] === RESP_ERR || parseSent(f)?.tag === tag, REPLY_TIMEOUT_MS)
@@ -180,7 +202,7 @@ export const useTraceStore = defineStore('trace', () => {
       // snrs[i] is what visit i+1 measured hearing visit i; the last leg is
       // the companion hearing the final hop.
       const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
-      animate(measured.slice(path.value.length))
+      animate(measured.slice(half))
       done({ ok: true, hops: measured, at: Date.now() })
     } catch (e) {
       done({ ok: false, reason: e instanceof Error ? e.message : String(e), at: Date.now() })
@@ -200,7 +222,10 @@ export const useTraceStore = defineStore('trace', () => {
     canRun,
     connect,
     disconnect,
-    toggleNode,
+    isRoundTrip,
+    pickNode,
+    removeAt,
+    completeReturn,
     clearPath,
     run,
   }

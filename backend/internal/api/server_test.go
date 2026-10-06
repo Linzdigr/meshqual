@@ -567,6 +567,19 @@ func TestLinkProfile(t *testing.T) {
 		t.Errorf("profile = %s", body)
 	}
 
+	// Each end's antenna height can be given; out-of-range values are clamped.
+	_, body = f.get(t, url+"?antA=30&antB=2")
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if pts := got.Result.Points; pts[0].L != 80 || pts[2].L != 52 {
+		t.Errorf("line ends at %v / %v m, want 80 / 52 (50 m ground + 30 / 2 m masts)", pts[0].L, pts[2].L)
+	}
+	_, body = f.get(t, url+"?antA=9999&antB=-4")
+	if !strings.Contains(string(body), `"antennaAM":300`) || !strings.Contains(string(body), `"antennaBM":0`) {
+		t.Errorf("heights not clamped: %s", body)
+	}
+
 	f.srv.d.Profiles = fakeProfiler{err: los.ErrNoCoverage}
 	_, body = f.get(t, url)
 	if !strings.Contains(string(body), `"available":false`) {

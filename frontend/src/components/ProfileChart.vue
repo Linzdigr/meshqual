@@ -12,7 +12,14 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** Pointer position along the link, 0 at A and 1 at B; null when it leaves. */
   hover: [number | null]
+  /** A new antenna height for one end, in metres above ground; null resets it. */
+  setAntenna: ['a' | 'b', number | null]
 }>()
+
+function onHeight(end: 'a' | 'b', e: Event) {
+  const raw = (e.target as HTMLInputElement).value
+  emit('setAntenna', end, raw === '' ? null : Number(raw))
+}
 
 const W = 600
 const H = 170
@@ -211,10 +218,39 @@ const summary = computed(() => {
         <li><i class="sw los" aria-hidden="true" />ligne directe entre antennes</li>
         <li><i class="sw fresnel" aria-hidden="true" />1re zone de Fresnel</li>
       </ul>
+      <fieldset class="heights">
+        <legend>Hauteur d'antenne au-dessus du sol</legend>
+        <label>
+          <span class="node-a">{{ aName }}</span>
+          <input
+            type="number"
+            min="0"
+            max="300"
+            step="1"
+            inputmode="numeric"
+            :value="profile?.antennaAM ?? profile?.antennaM"
+            @input="onHeight('a', $event)"
+          />
+          m
+        </label>
+        <label>
+          <span class="node-b">{{ bName }}</span>
+          <input
+            type="number"
+            min="0"
+            max="300"
+            step="1"
+            inputmode="numeric"
+            :value="profile?.antennaBM ?? profile?.antennaM"
+            @input="onHeight('b', $event)"
+          />
+          m
+        </label>
+      </fieldset>
       <p class="note">
-        Antennes supposées à {{ profile?.antennaM }} m du sol, {{ profile?.freqMHz }} MHz, courbure
-        terrestre k = 4/3. Relief IGN (RGE ALTI) sans bâtiments ni végétation : la réalité peut être
-        moins favorable.
+        Hauteurs mémorisées par nœud dans ce navigateur ({{ profile?.antennaM }} m par défaut ; vider le
+        champ y revient). {{ profile?.freqMHz }} MHz, courbure terrestre k = 4/3. Relief IGN (RGE ALTI)
+        sans bâtiments ni végétation : la réalité peut être moins favorable.
       </p>
     </template>
   </div>
@@ -422,6 +458,48 @@ svg * {
 
 .sw.fresnel {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.heights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 11px;
+}
+
+.heights legend {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--text-secondary);
+}
+
+.heights label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.heights label span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heights input {
+  width: 52px;
+  padding: 2px 4px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .mono {

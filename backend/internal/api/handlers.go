@@ -309,8 +309,8 @@ func toInt(v any) int {
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
 
-// nodeProps are a node's GeoJSON properties. pathHashSize is omitted until an
-// advert has revealed it.
+// nodeProps are a node's GeoJSON properties. pathHashSize and regionScope are
+// omitted until a flood advert has revealed them.
 func nodeProps(n ingest.Node) map[string]any {
 	p := map[string]any{
 		"key":      n.Key,
@@ -319,6 +319,9 @@ func nodeProps(n ingest.Node) map[string]any {
 	}
 	if n.PathHashSize != 0 {
 		p["pathHashSize"] = n.PathHashSize
+	}
+	if s := n.RegionScope.String(); s != "" {
+		p["regionScope"] = s
 	}
 	return p
 }

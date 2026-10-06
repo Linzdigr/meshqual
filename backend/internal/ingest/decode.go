@@ -55,6 +55,7 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 				Key: adv.PublicKeyHex(), Name: adv.Name, NodeType: adv.NodeType,
 				Latitude: adv.Latitude, Longitude: adv.Longitude,
 				PathHashSize: AdvertHashSize(pkt),
+				RegionScope:  AdvertScope(pkt),
 				LastHeard:    obs.ReceivedAt,
 			})
 		}
@@ -185,6 +186,44 @@ func AdvertHashSize(pkt *meshcore.Packet) uint8 {
 		return 0
 	}
 	return uint8(pkt.HashSize())
+}
+
+// RegionScope is whether a node sends its flood packets under a default region
+// (MeshCore v1.10+ `region default <name>`).
+type RegionScope uint8
+
+const (
+	ScopeUnknown RegionScope = iota
+	// ScopeNone: floods go out unscoped, which repeaters set to `region denyf *`
+	// drop, and `flood.max.unscoped` cuts short.
+	ScopeNone
+	ScopeSet
+)
+
+// String is the API form: "none" or "set", empty when unknown.
+func (s RegionScope) String() string {
+	switch s {
+	case ScopeNone:
+		return "none"
+	case ScopeSet:
+		return "set"
+	}
+	return ""
+}
+
+// AdvertScope is what an advert reveals about its originator's default region.
+// Repeaters, room servers and companions all send their flood adverts through
+// sendFloodScoped(default_scope, ...): TRANSPORT_FLOOD with a transport code
+// when a default region is set, plain FLOOD otherwise. Relays keep the route
+// type. A zero-hop advert (DIRECT) reveals nothing.
+func AdvertScope(pkt *meshcore.Packet) RegionScope {
+	switch pkt.RouteType() {
+	case meshcore.RouteTransportFlood:
+		return ScopeSet
+	case meshcore.RouteFlood:
+		return ScopeNone
+	}
+	return ScopeUnknown
 }
 
 func order(from, to string) (a, b string, forward bool) {

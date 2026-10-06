@@ -80,9 +80,14 @@ export const api = {
     return get<LinkDetail>(`/api/links/${a}/${b}`, signal)
   },
 
-  profile: (linkId: string, signal?: AbortSignal) => {
+  /** Line of sight; antA / antB override the server's antenna height at each end (m). */
+  profile: (linkId: string, heights: { antA?: number; antB?: number } = {}, signal?: AbortSignal) => {
     const [a, b] = linkId.split(':')
-    return get<LinkProfile>(`/api/links/${a}/${b}/profile`, signal)
+    const q = new URLSearchParams()
+    if (heights.antA !== undefined) q.set('antA', String(heights.antA))
+    if (heights.antB !== undefined) q.set('antB', String(heights.antB))
+    const qs = q.toString()
+    return get<LinkProfile>(`/api/links/${a}/${b}/profile${qs ? `?${qs}` : ''}`, signal)
   },
 
   frames: (linkId: string, limit = 10, signal?: AbortSignal) => {

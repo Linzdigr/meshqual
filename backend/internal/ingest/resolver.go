@@ -20,6 +20,9 @@ type Node struct {
 	// PathHashSize is the path hash width (1..4 bytes) the node uses for packets
 	// it originates, read from its adverts; 0 until one is seen.
 	PathHashSize uint8
+	// RegionScope says whether the node floods its own packets under a default
+	// region, read from its flood adverts; ScopeUnknown until one is seen.
+	RegionScope RegionScope
 	// LastHeard is the last time the node was heard: an advert from it, a path
 	// that unambiguously names it as a relay, or a packet it observed. The map
 	// hides nodes silent for too long (see api Deps.NodeMaxAge).
@@ -98,6 +101,9 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	}
 	if n.PathHashSize != 0 && n.PathHashSize != cur.PathHashSize {
 		cur.PathHashSize, changed = n.PathHashSize, true
+	}
+	if n.RegionScope != ScopeUnknown && n.RegionScope != cur.RegionScope {
+		cur.RegionScope, changed = n.RegionScope, true
 	}
 	// Not a change to persist: the database keeps its own last_seen.
 	if n.LastHeard.After(cur.LastHeard) {
