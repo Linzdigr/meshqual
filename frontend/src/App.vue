@@ -264,6 +264,7 @@ watch(
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
+        :measure-retention-sec="store.measureRetentionSec"
         :altitude="store.altitude"
         :no-auto-fit="deepLink"
         @moveend="onMoveEnd"
@@ -289,6 +290,7 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
+          :retention-days="Math.round(store.measureRetentionSec / 86400)"
           :one-byte-hash-count="store.oneByteHashCount"
           v-model:open="legendOpen"
           @toggle="onToggleKind"
@@ -315,8 +317,10 @@ watch(
           :history="store.history"
           :thresholds="store.snrThresholds"
           :asym-threshold="store.asymmetryThresholdDb"
+          :retention-sec="store.measureRetentionSec"
           :profile="store.profile"
           @close="store.selectLink(null)"
+          @profile-hover="(f) => meshMap?.markOnLink(store.selectedLinkId, f)"
         />
       </div>
     </main>

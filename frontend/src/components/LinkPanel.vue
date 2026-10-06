@@ -13,10 +13,16 @@ const props = defineProps<{
   history: HistoryBucket[]
   thresholds: number[]
   asymThreshold: number
+  /** How long the server keeps a link's signal values. */
+  retentionSec: number
   profile: { state: 'loading' | 'ready' | 'error'; data?: LinkProfile } | null
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  /** Pointer over the line-of-sight chart, as a fraction from A to B; null when it leaves. */
+  profileHover: [number | null]
+}>()
 
 /**
  * The line-of-sight section stays folded so it does not crowd the panel; its
@@ -35,6 +41,17 @@ const losLabel: Record<string, string> = {
 
 /** A link heard within this long is shown as active (the server's live window). */
 const ACTIVE_LINK_SEC = 24 * 3600
+
+/**
+ * Signal values outlive the traffic window (14 days by default). Past a day the
+ * history covers the whole retention, and the header says how old the values
+ * are when the link has been heard since without a signal reading.
+ */
+const staleMeasure = computed(() => (props.link?.measureAgeSec ?? 0) > ACTIVE_LINK_SEC)
+const measuredBeforeSeen = computed(
+  () => staleMeasure.value && props.link!.measureAgeSec! - props.link!.ageSec > 3600,
+)
+const retentionDays = computed(() => Math.round(props.retentionSec / 86_400))
 
 /**
  * Panel width, dragged from the left edge (the panel is anchored to the right).
@@ -297,6 +314,13 @@ const tiles = computed(() => {
           <p class="sub">
             <span class="kind" :class="link.kind">{{ kindLabel[link.kind] ?? link.kind }}</span>
             <span class="mono">vu il y a {{ formatDuration(link.ageSec) }}</span>
+            <span
+              v-if="measuredBeforeSeen"
+              class="mono stale"
+              :title="`Les valeurs de signal sont conservées ${retentionDays} jours : celles affichées datent de cette dernière mesure`"
+            >
+              mesuré il y a {{ formatDuration(link.measureAgeSec!) }}
+            </span>
             <span v-if="link.ageSec < ACTIVE_LINK_SEC" class="live">
               <i aria-hidden="true" />lien actif
             </span>
@@ -348,7 +372,7 @@ const tiles = computed(() => {
       </p>
 
       <section>
-        <SnrSparkline :buckets="history" />
+        <SnrSparkline :buckets="history" :period="staleMeasure ? `${retentionDays} j` : '24 h'" />
       </section>
 
       <section>
@@ -373,6 +397,7 @@ const tiles = computed(() => {
           :profile="profile?.data"
           :a-name="names.a"
           :b-name="names.b"
+          @hover="(f) => emit('profileHover', f)"
         />
       </section>
 
@@ -589,6 +614,10 @@ h2 {
 .kind.trace {
   border-color: var(--kind-trace);
   color: var(--kind-trace);
+}
+
+.stale {
+  color: var(--status-warning);
 }
 
 .live {

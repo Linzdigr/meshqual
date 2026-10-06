@@ -13,6 +13,8 @@ export interface LaneProperties {
   measured: boolean
   /** The link is unbalanced beyond the threshold (kept by "déséquilibrés seulement"). */
   emphasized: boolean
+  /** Age of the link's newest measurement, which fades the lane like the link. */
+  measureAgeSec?: number
 }
 
 export function laneId(linkId: string, forward: boolean): string {
@@ -66,6 +68,7 @@ export function buildLanes(
           measured,
           emphasized,
           ...(measured && { snr: median }),
+          ...(p.measureAgeSec !== undefined && { measureAgeSec: p.measureAgeSec }),
         },
       })
     }

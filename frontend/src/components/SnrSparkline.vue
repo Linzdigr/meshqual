@@ -5,10 +5,12 @@ import type { HistoryBucket } from '@/api/types'
 const props = withDefaults(
   defineProps<{
     buckets: HistoryBucket[]
+    /** The span the buckets cover, as read in the caption. */
+    period?: string
     width?: number
     height?: number
   }>(),
-  { width: 258, height: 44 },
+  { period: '24 h', width: 258, height: 44 },
 )
 
 interface Point {
@@ -115,6 +117,7 @@ const labelStyle = computed(() => {
 function fmt(at: string): string {
   return new Date(at).toLocaleString('fr-FR', {
     weekday: 'short',
+    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -123,7 +126,7 @@ function fmt(at: string): string {
 
 <template>
   <figure v-if="model" class="spark">
-    <figcaption>SNR moyen sur 24 h <span class="mono">({{ model.lo }} à {{ model.hi }} dB)</span></figcaption>
+    <figcaption>SNR moyen sur {{ period }} <span class="mono">({{ model.lo }} à {{ model.hi }} dB)</span></figcaption>
     <div class="plot" :style="{ width: `${width}px` }">
       <svg
         ref="svgEl"
@@ -132,7 +135,7 @@ function fmt(at: string): string {
         :viewBox="`0 0 ${width} ${height}`"
         role="img"
         tabindex="0"
-        :aria-label="`SNR moyen sur 24 heures, de ${model.lo} à ${model.hi} dB. Flèches gauche et droite pour lire chaque heure.`"
+        :aria-label="`SNR moyen sur ${period}, de ${model.lo} à ${model.hi} dB. Flèches gauche et droite pour lire chaque intervalle.`"
         @pointermove="onPointer"
         @pointerdown="onPointer"
         @pointerleave="hover = null"
@@ -155,7 +158,7 @@ function fmt(at: string): string {
     </div>
   </figure>
   <p v-else class="empty">
-    Pas encore d'historique : il faut au moins 24h et  deux intervalles de mesures.
+    Pas assez d'historique sur {{ period }} : il faut au moins deux intervalles avec des mesures.
   </p>
 </template>
 

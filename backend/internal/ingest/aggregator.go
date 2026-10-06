@@ -34,6 +34,15 @@ type SNRStats struct {
 	Mean   float64 `json:"mean"`
 }
 
+// reading is one retained SNR or RSSI value. The time lets measurements outlive
+// the traffic window (MeasureRetention); the kind lets the link fall back to
+// topology once its last measurement has aged out.
+type reading struct {
+	at   time.Time
+	v    float64
+	kind Kind
+}
+
 // LinkState is the live, in-memory state of one link.
 //
 // The map is served from here rather than from SQL: a bbox query every couple of
@@ -41,8 +50,10 @@ type SNRStats struct {
 // and the live window is small enough to hold. Timescale keeps the history and
 // answers the per-link time series.
 type LinkState struct {
-	ID   LinkID
-	Kind Kind // the strongest kind seen: trace > measured > topology
+	ID LinkID
+	// Kind is the strongest kind seen: trace > measured > topology. Once every
+	// measurement has aged out it drops back to the strongest still retained.
+	Kind Kind
 
 	Samples   int
 	Forward   int
@@ -54,17 +65,19 @@ type LinkState struct {
 	// map animates a link in that direction for a few seconds after it is heard.
 	LastForward bool
 	LastSNR     *float64
+	// LastMeasured is when the newest retained SNR value was taken.
+	LastMeasured time.Time
 
-	snr    []float64 // bounded ring of recent SNR values, both directions
+	snr    []reading // bounded ring of recent SNR values, both directions
 	snrPos int
 	// The same values split by direction of transmission. SNR is measured by
 	// the receiver, so A->B is what B measured hearing A.
-	snrAB, snrBA       []float64
+	snrAB, snrBA       []reading
 	snrABPos, snrBAPos int
-	rssi               []float64
+	rssi               []reading
 	rssiP              int
 	// RSSI split the same way: what the receiver of each direction measured.
-	rssiAB, rssiBA       []float64
+	rssiAB, rssiBA       []reading
 	rssiABPos, rssiBAPos int
 
 	frames   []Frame // bounded ring, newest last
@@ -83,12 +96,17 @@ type Aggregator struct {
 	// MinDirectionSamples is how many SNR values a direction needs before it
 	// counts towards the link quality. Below that, one fade would decide it.
 	MinDirectionSamples int
-	window              time.Duration
-	dirty               map[LinkID]struct{}
-	hopsTotal           uint64
-	hopsUnres           uint64
-	hopsAmbig           uint64
-	samplesIn           uint64
+	// MeasureRetention is how long SNR and RSSI values are kept, and with them
+	// the link, after the link was last heard. Signal between two repeaters
+	// only comes from occasional traces, so it is kept well beyond the traffic
+	// window. Never shorter than the window.
+	MeasureRetention time.Duration
+	window           time.Duration
+	dirty            map[LinkID]struct{}
+	hopsTotal        uint64
+	hopsUnres        uint64
+	hopsAmbig        uint64
+	samplesIn        uint64
 
 	implausible uint64
 }
@@ -110,6 +128,7 @@ func NewAggregator(maxFrames, maxSNR int, window time.Duration) *Aggregator {
 		maxFrames:           maxFrames,
 		maxSNR:              maxSNR,
 		window:              window,
+		MeasureRetention:    window,
 		MinDirectionSamples: 3,
 		dirty:               make(map[LinkID]struct{}),
 	}
@@ -152,15 +171,19 @@ func (a *Aggregator) Add(d *Decoded) {
 			st.Observers[s.ObserverKey]++
 		}
 		if s.SNR != nil {
-			st.snr, st.snrPos = pushRing(st.snr, st.snrPos, *s.SNR, a.maxSNR)
+			r := reading{at: s.At, v: *s.SNR, kind: s.Kind}
+			st.snr, st.snrPos = pushRing(st.snr, st.snrPos, r, a.maxSNR)
 			if s.Forward {
-				st.snrAB, st.snrABPos = pushRing(st.snrAB, st.snrABPos, *s.SNR, a.maxSNR)
+				st.snrAB, st.snrABPos = pushRing(st.snrAB, st.snrABPos, r, a.maxSNR)
 			} else {
-				st.snrBA, st.snrBAPos = pushRing(st.snrBA, st.snrBAPos, *s.SNR, a.maxSNR)
+				st.snrBA, st.snrBAPos = pushRing(st.snrBA, st.snrBAPos, r, a.maxSNR)
+			}
+			if s.At.After(st.LastMeasured) {
+				st.LastMeasured = s.At
 			}
 		}
 		if s.RSSI != nil {
-			r := float64(*s.RSSI)
+			r := reading{at: s.At, v: float64(*s.RSSI), kind: s.Kind}
 			st.rssi, st.rssiP = pushRing(st.rssi, st.rssiP, r, a.maxSNR)
 			if s.Forward {
 				st.rssiAB, st.rssiABPos = pushRing(st.rssiAB, st.rssiABPos, r, a.maxSNR)
@@ -168,7 +191,7 @@ func (a *Aggregator) Add(d *Decoded) {
 				st.rssiBA, st.rssiBAPos = pushRing(st.rssiBA, st.rssiBAPos, r, a.maxSNR)
 			}
 		}
-		st.frames, st.framePos = pushFrame(st.frames, st.framePos, Frame{
+		st.frames, st.framePos = pushRing(st.frames, st.framePos, Frame{
 			At: s.At, Kind: s.Kind.String(), Forward: s.Forward,
 			SNR: s.SNR, RSSI: s.RSSI,
 			PayloadType: payloadName(s.PayloadType), RouteType: routeName(s.RouteType),
@@ -239,20 +262,69 @@ func (a *Aggregator) TakeDirty() []LinkID {
 	return out
 }
 
-// Evict drops links whose last sample is older than the window. Returns how many.
+// Evict drops measurements older than MeasureRetention, then links neither
+// heard within the window nor holding a measurement. Returns how many links.
 func (a *Aggregator) Evict(now time.Time) int {
 	cutoff := now.Add(-a.window)
+	measureCutoff := now.Add(-max(a.MeasureRetention, a.window))
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	n := 0
 	for id, st := range a.links {
-		if st.LastSeen.Before(cutoff) {
+		if st.pruneReadings(measureCutoff) {
+			a.dirty[id] = struct{}{}
+		}
+		if st.LastSeen.Before(cutoff) && len(st.snr) == 0 && len(st.rssi) == 0 {
 			delete(a.links, id)
 			delete(a.dirty, id)
 			n++
 		}
 	}
 	return n
+}
+
+// pruneReadings drops SNR and RSSI values taken before cutoff and, if any went,
+// recomputes the kind and the last measurement time from what is left.
+func (st *LinkState) pruneReadings(cutoff time.Time) bool {
+	changed := false
+	for _, r := range []struct {
+		ring *[]reading
+		pos  *int
+	}{
+		{&st.snr, &st.snrPos}, {&st.snrAB, &st.snrABPos}, {&st.snrBA, &st.snrBAPos},
+		{&st.rssi, &st.rssiP}, {&st.rssiAB, &st.rssiABPos}, {&st.rssiBA, &st.rssiBAPos},
+	} {
+		if len(*r.ring) == 0 {
+			continue
+		}
+		kept := make([]reading, 0, len(*r.ring))
+		for _, v := range ringOrder(*r.ring, *r.pos) {
+			if !v.at.Before(cutoff) {
+				kept = append(kept, v)
+			}
+		}
+		if len(kept) == len(*r.ring) {
+			continue
+		}
+		changed = true
+		if len(kept) == 0 {
+			kept = nil
+		}
+		*r.ring, *r.pos = kept, len(kept)
+	}
+	if !changed {
+		return false
+	}
+	st.Kind, st.LastMeasured = KindTopology, time.Time{}
+	for _, r := range append(append([]reading(nil), st.snr...), st.rssi...) {
+		st.Kind = max(st.Kind, r.kind)
+	}
+	for _, r := range st.snr {
+		if r.at.After(st.LastMeasured) {
+			st.LastMeasured = r.at
+		}
+	}
+	return true
 }
 
 // Health reports attribution quality: what share of observed hops could not be
@@ -297,9 +369,11 @@ type LinkView struct {
 	FirstSeen time.Time `json:"firstSeen"`
 	LastSeen  time.Time `json:"lastSeen"`
 	// LastForward and LastSNR describe the newest sample only.
-	LastForward bool      `json:"lastForward"`
-	LastSNR     *float64  `json:"lastSnr"`
-	SNR         *SNRStats `json:"snr"`
+	LastForward bool     `json:"lastForward"`
+	LastSNR     *float64 `json:"lastSnr"`
+	// LastMeasured is when the newest SNR value was taken; nil without one.
+	LastMeasured *time.Time `json:"lastMeasured,omitempty"`
+	SNR          *SNRStats  `json:"snr"`
 	// Per direction of transmission: AB is what B measured hearing A.
 	SNRAB *SNRStats `json:"snrAB"`
 	SNRBA *SNRStats `json:"snrBA"`
@@ -330,9 +404,11 @@ func (st *LinkState) view(minDir int) LinkView {
 	for k, n := range st.Observers {
 		v.Observers[k] = n
 	}
-	if s := stats(st.snr); s != nil {
-		v.SNR = s
+	if !st.LastMeasured.IsZero() {
+		t := st.LastMeasured
+		v.LastMeasured = &t
 	}
+	v.SNR = stats(st.snr)
 	v.SNRAB, v.SNRBA = stats(st.snrAB), stats(st.snrBA)
 	v.Quality, v.SNRBasis, v.Delta = quality(v.SNR, v.SNRAB, v.SNRBA, minDir)
 	v.RSSIMean, v.RSSIMeanAB, v.RSSIMeanBA = meanOf(st.rssi), meanOf(st.rssiAB), meanOf(st.rssiBA)
@@ -372,20 +448,27 @@ func quality(all, ab, ba *SNRStats, minDir int) (q *float64, basis string, delta
 	}
 }
 
-func meanOf(vals []float64) *float64 {
-	if len(vals) == 0 {
+func meanOf(rs []reading) *float64 {
+	if len(rs) == 0 {
 		return nil
 	}
-	m := mean(vals)
+	m := mean(values(rs))
 	return &m
 }
 
-func stats(vals []float64) *SNRStats {
-	if len(vals) == 0 {
+func values(rs []reading) []float64 {
+	out := make([]float64, len(rs))
+	for i, r := range rs {
+		out[i] = r.v
+	}
+	return out
+}
+
+func stats(rs []reading) *SNRStats {
+	if len(rs) == 0 {
 		return nil
 	}
-	s := make([]float64, len(vals))
-	copy(s, vals)
+	s := values(rs)
 	sort.Float64s(s)
 	return &SNRStats{
 		Count: len(s), Min: s[0], Max: s[len(s)-1],
@@ -420,15 +503,7 @@ func mean(v []float64) float64 {
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 
-func pushRing(ring []float64, pos int, v float64, max int) ([]float64, int) {
-	if len(ring) < max {
-		return append(ring, v), len(ring) + 1
-	}
-	ring[pos%max] = v
-	return ring, pos + 1
-}
-
-func pushFrame(ring []Frame, pos int, v Frame, max int) ([]Frame, int) {
+func pushRing[T any](ring []T, pos int, v T, max int) ([]T, int) {
 	if len(ring) < max {
 		return append(ring, v), len(ring) + 1
 	}

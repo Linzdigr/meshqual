@@ -28,6 +28,11 @@ type Config struct {
 
 	// LiveWindow is how long a link stays on the map after its last sample.
 	LiveWindow Duration `json:"liveWindow"`
+	// MeasureRetention keeps a link's SNR and RSSI values, and the link with
+	// them, this long after it was last heard. Signal between two repeaters
+	// only comes from occasional traces; dropping it with the traffic window
+	// would turn such links back into topology a day after each trace.
+	MeasureRetention Duration `json:"measureRetention"`
 	// NodeMaxAge hides from the map nodes not heard for this long. They stay
 	// known to the resolver, which still needs them to read paths. 0 disables.
 	NodeMaxAge Duration `json:"nodeMaxAge"`
@@ -98,6 +103,7 @@ func Default() Config {
 	return Config{
 		Addr:                 ":8080",
 		LiveWindow:           Duration(24 * time.Hour),
+		MeasureRetention:     Duration(14 * 24 * time.Hour),
 		NodeMaxAge:           Duration(48 * time.Hour),
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,

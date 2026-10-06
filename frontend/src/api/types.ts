@@ -20,6 +20,10 @@ export interface LinkProperties {
   lastForward: boolean
   /** SNR carried by the newest sample, when it had one. */
   lastSnr?: number
+  /** When the newest SNR value was taken. Signal values outlive the traffic
+   * window (measureRetentionSec), so this can be days old. */
+  lastMeasured?: string
+  measureAgeSec?: number
   distKm: number
   /** log10(samples+1): the width channel, so a backbone does not hide the leaves. */
   weight: number
@@ -128,6 +132,8 @@ export interface ServerConfig {
   snrRange: [number, number] | number[]
   /** Gap between direction medians from which the asymmetry view highlights a link. */
   asymmetryThresholdDb?: number
+  /** How long a link keeps its signal values after it was last heard. */
+  measureRetentionSec?: number
 }
 
 export interface SourceStats {

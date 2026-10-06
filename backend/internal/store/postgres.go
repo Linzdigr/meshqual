@@ -216,15 +216,18 @@ func (p *Postgres) WriteSamples(ctx context.Context, samples []ingest.Sample) er
 	return err
 }
 
-// LoadRecentSamples warms the in-memory aggregator after a restart, newest first.
-func (p *Postgres) LoadRecentSamples(ctx context.Context, since time.Time, limit int) ([]ingest.Sample, error) {
+// LoadRecentSamples warms the in-memory aggregator after a restart, newest
+// first: every sample since `since`, and those carrying a signal value back to
+// `measuredSince`.
+func (p *Postgres) LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, limit int) ([]ingest.Sample, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT time, a_key, b_key, forward, kind, snr, rssi, observer_key,
        payload_type, route_type, hop_index, hop_count, source_id, wire_hash
 FROM link_samples
-WHERE time >= $1
+WHERE time >= LEAST($1, $2::timestamptz)
+  AND (time >= $1 OR snr IS NOT NULL OR rssi IS NOT NULL)
 ORDER BY time DESC
-LIMIT $2`, since, limit)
+LIMIT $3`, since, measuredSince, limit)
 	if err != nil {
 		return nil, err
 	}

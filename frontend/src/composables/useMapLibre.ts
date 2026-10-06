@@ -34,6 +34,7 @@ export const ACTIVE_SOURCE = 'links-active'
 export const LANES_SOURCE = 'lanes'
 /** The selected link's per-direction readings, one line feature per direction. */
 export const FOCUS_LABELS_SOURCE = 'focus-labels'
+const PROFILE_MARK_SOURCE = 'profile-mark'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
@@ -48,6 +49,7 @@ const LAYER_NODE_SELECTED = 'nodes-selected'
 const LAYER_NODE_WARN = 'nodes-hash-warn'
 const LAYER_NODE_LABELS = 'nodes-labels'
 const LAYER_FOCUS_LABELS = 'focus-labels'
+const LAYER_PROFILE_MARK = 'profile-mark'
 
 /**
  * Tile source. OpenStreetMap's own tiles carry a usage policy that forbids
@@ -320,6 +322,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [ACTIVE_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [PROFILE_MARK_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ALTITUDE_SOURCE]: {
         type: 'raster-dem',
         tiles: [TERRARIUM_URL],
@@ -600,12 +603,50 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-halo-width': 2,
       },
     },
+    // The point under the pointer on the line-of-sight chart, placed on the link.
+    {
+      id: LAYER_PROFILE_MARK,
+      type: 'circle' as const,
+      source: PROFILE_MARK_SOURCE,
+      paint: {
+        'circle-radius': 6,
+        'circle-color': dark ? '#3987e5' : '#2a78d6',
+        'circle-stroke-color': surface,
+        'circle-stroke-width': 2.5,
+      },
+    },
+  ]
+}
+
+/**
+ * A measurement stays on the map for the retention period (14 days by default)
+ * after the link was last heard, fading as it ages: full strength for the
+ * first day, then down to MEASURE_FADE_MIN at the end of retention. Links with
+ * no measurement are not affected.
+ */
+const MEASURE_FRESH_SEC = 86_400
+const MEASURE_FADE_MIN = 0.35
+
+function measureFade(base: number, retentionSec: number): ExpressionSpecification {
+  const end = Math.max(retentionSec, MEASURE_FRESH_SEC + 1)
+  return [
+    '*',
+    base,
+    [
+      'interpolate',
+      ['linear'],
+      ['coalesce', ['get', 'measureAgeSec'], 0],
+      MEASURE_FRESH_SEC,
+      1,
+      end,
+      MEASURE_FADE_MIN,
+    ],
   ]
 }
 
 /** Unfocused opacity per link layer. Every lane at full strength: the "Liens
  * déséquilibrés seulement" filter is what singles out unbalanced links. */
-const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base: unknown }[] = [
+const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base: number }[] = [
   { layer: LAYER_CASING, prop: 'line-opacity', base: 0.85 },
   { layer: LAYER_TOPOLOGY, prop: 'line-opacity', base: 0.45 },
   { layer: LAYER_MEASURED, prop: 'line-opacity', base: 0.95 },
@@ -631,6 +672,8 @@ export interface UseMapOptions {
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
   palette: Ref<SnrPalette>
+  /** How long a link keeps its signal values; links fade over it. */
+  measureRetentionSec: Ref<number>
   /** Altitude as a colour ramp under the links. */
   altitude: Ref<boolean>
   /** The altitudes the ramp currently spans, or null while it is off. */
@@ -1055,7 +1098,9 @@ export function useMapLibre(opts: UseMapOptions) {
     const on = selectedLink !== null || selectedNode !== null
     const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', focusLinks]]
     for (const { layer, prop, base } of LINK_OPACITY) {
-      map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : base)
+      // The animated packet line is fresh by definition: no age fade.
+      const rest = layer === LAYER_ACTIVE ? base : measureFade(base, opts.measureRetentionSec.value)
+      map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : rest)
     }
     const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', focusNodes]]
     const nodeOpacity = on ? ['case', inNodes, 1, NODE_FOCUS_DIM] : 1
@@ -1107,6 +1152,7 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_PROFILE_MARK,
       LAYER_FOCUS_LABELS,
       LAYER_NODE_LABELS,
       LAYER_NODE_SELECTED,
@@ -1165,6 +1211,30 @@ export function useMapLibre(opts: UseMapOptions) {
     }, delay)
   }
 
+  /**
+   * Marks the point a fraction of the way from A to B along a link (the
+   * line-of-sight chart under the pointer); null clears it. A straight line in
+   * lng/lat is close enough to the geodesic over a radio hop.
+   */
+  function markOnLink(linkId: string | null, fraction: number | null) {
+    const src = map?.getSource(PROFILE_MARK_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    const g = linkId && fraction !== null ? findLink(linkId)?.geometry : undefined
+    const coords = g?.type === 'LineString' ? g.coordinates : undefined
+    if (!coords || coords.length < 2) {
+      src.setData(EMPTY_FC as never)
+      return
+    }
+    const [lngA, latA] = coords[0]!
+    const [lngB, latB] = coords[coords.length - 1]!
+    const f = Math.min(1, Math.max(0, fraction!))
+    src.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: [lngA! + (lngB! - lngA!) * f, latA! + (latB! - latA!) * f] },
+    } as never)
+  }
+
   function fitTo(bbox: BBox) {
     map?.fitBounds(
       [
@@ -1193,6 +1263,8 @@ export function useMapLibre(opts: UseMapOptions) {
     fitTo,
     applyView,
     applyAltitude,
+    applyFocus,
+    markOnLink,
     focusLink,
     focusPoints,
   }

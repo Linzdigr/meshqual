@@ -17,6 +17,7 @@ const props = defineProps<{
   asymOnly: boolean
   asymThreshold: number
   palette: SnrPalette
+  measureRetentionSec: number
   altitude: boolean
   /** Skip framing all nodes on first load: a shared link frames its own target. */
   noAutoFit?: boolean
@@ -37,6 +38,7 @@ const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
+const retentionRef = ref(props.measureRetentionSec)
 
 const map = useMapLibre({
   container,
@@ -47,6 +49,7 @@ const map = useMapLibre({
   asymThreshold: asymThresholdRef,
   palette: paletteRef,
   altitude: altitudeRef,
+  measureRetentionSec: retentionRef,
   onAltitudeRange: (r) => emit('altitudeRange', r),
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
@@ -89,8 +92,21 @@ watch(
     autoFit(fc)
   },
 )
-watch(() => props.selectedLinkId, (id) => map.highlight(id))
+watch(
+  () => props.selectedLinkId,
+  (id) => {
+    map.highlight(id)
+    map.markOnLink(null, null) // the chart that placed it is gone
+  },
+)
 watch(() => props.selectedNodeKey, (key) => map.highlightNode(key))
+watch(
+  () => props.measureRetentionSec,
+  (sec) => {
+    retentionRef.value = sec
+    map.applyFocus()
+  },
+)
 watch(
   () => props.altitude,
   (on) => {
@@ -104,6 +120,8 @@ defineExpose({
   focus: (linkId: string, padding: Padding) => map.focusLink(linkId, padding),
   /** Frames [lng, lat] points the same way: a node and its neighbours. */
   focusPoints: (points: [number, number][], padding: Padding) => map.focusPoints(points, padding),
+  /** Puts a point a fraction of the way along a link, or clears it with null. */
+  markOnLink: (linkId: string | null, fraction: number | null) => map.markOnLink(linkId, fraction),
 })
 
 watch(

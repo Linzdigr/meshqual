@@ -47,7 +47,9 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"pushIntervalMs": s.d.PushInterval.Milliseconds(),
 		"liveWindow":     s.d.LiveWindow.String(),
-		"framesMax":      s.d.FramesMax,
+		// Links keep their signal values this long; the map fades them with age.
+		"measureRetentionSec": int(max(s.d.MeasureRetention, s.d.LiveWindow).Seconds()),
+		"framesMax":           s.d.FramesMax,
 		// SNR bucket edges in dB. Four buckets, because the map encodes them as
 		// an ordinal one-hue ramp: lightness carries the order, which stays
 		// readable under colour-vision deficiency where a red/green scale does
@@ -183,6 +185,10 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 		if l.LastSNR != nil {
 			props["lastSnr"] = *l.LastSNR
+		}
+		if l.LastMeasured != nil {
+			props["lastMeasured"] = l.LastMeasured.UTC().Format(time.RFC3339)
+			props["measureAgeSec"] = int(time.Since(*l.LastMeasured).Seconds())
 		}
 		if l.RSSIMean != nil {
 			props["rssiMean"] = round2(*l.RSSIMean)

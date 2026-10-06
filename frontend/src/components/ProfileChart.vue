@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import type { LinkProfile } from '@/api/types'
 
 const props = defineProps<{
@@ -7,6 +7,11 @@ const props = defineProps<{
   profile?: LinkProfile
   aName: string
   bName: string
+}>()
+
+const emit = defineEmits<{
+  /** Pointer position along the link, 0 at A and 1 at B; null when it leaves. */
+  hover: [number | null]
 }>()
 
 const W = 600
@@ -53,8 +58,57 @@ const chart = computed(() => {
     worst: { x: x(r.worst.d), y: y(r.worst.t) },
     lo: Math.round(lo),
     hi: Math.round(hi),
+    x,
+    y,
+    total,
   }
 })
+
+/**
+ * The profile sample nearest the pointer. Shown on the chart (guide, marks on
+ * the ground and on the line, a readout) and sent up so the map marks the same
+ * spot on the link.
+ */
+const hoverIndex = ref<number | null>(null)
+
+const hovered = computed(() => {
+  const c = chart.value
+  const r = result.value
+  if (!c || !r || hoverIndex.value === null) return null
+  const p = r.points[hoverIndex.value]
+  if (!p) return null
+  return {
+    x: c.x(p.d),
+    ground: c.y(p.t),
+    line: c.y(p.l),
+    d: p.d,
+    // Height of the direct line above the ground (bulge included).
+    margin: Math.round(p.l - p.t),
+    side: p.d / c.total > 0.5 ? 'left' : 'right',
+    pct: (p.d / c.total) * 100,
+  }
+})
+
+function onPointer(e: PointerEvent) {
+  const c = chart.value
+  const r = result.value
+  if (!c || !r) return
+  const rect = (e.currentTarget as SVGElement).getBoundingClientRect()
+  const target = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * c.total
+  let best = 0
+  for (let i = 1; i < r.points.length; i++) {
+    if (Math.abs(r.points[i]!.d - target) < Math.abs(r.points[best]!.d - target)) best = i
+  }
+  hoverIndex.value = best
+  emit('hover', r.points[best]!.d / c.total)
+}
+
+function onLeave() {
+  hoverIndex.value = null
+  emit('hover', null)
+}
+
+onUnmounted(() => emit('hover', null))
 
 const verdictLabel: Record<string, string> = {
   clear: 'Dégagé',
@@ -102,28 +156,50 @@ const summary = computed(() => {
         {{ summary }}
       </p>
       <figure class="chart">
-        <svg
-          :viewBox="`0 0 ${W} ${H}`"
-          preserveAspectRatio="none"
-          role="img"
-          :aria-label="`Profil du relief entre ${aName} et ${bName} : ${verdictLabel[result.verdict]}`"
-        >
-          <polygon :points="chart.fresnel" class="fresnel" />
-          <path :d="chart.terrain" class="terrain" />
-          <line v-bind="chart.los" class="los" />
-          <line
-            v-for="m in chart.masts"
-            :key="m.end"
-            :x1="m.x"
-            :x2="m.x"
-            :y1="m.ground"
-            :y2="m.top"
-            :class="`mast node-${m.end}`"
-          />
-          <template v-if="result.verdict !== 'clear'">
-            <line :x1="chart.worst.x" :x2="chart.worst.x" :y1="0" :y2="H" class="worst-guide" />
+        <div class="plot">
+          <svg
+            :viewBox="`0 0 ${W} ${H}`"
+            preserveAspectRatio="none"
+            role="img"
+            :aria-label="`Profil du relief entre ${aName} et ${bName} : ${verdictLabel[result.verdict]}`"
+            @pointermove="onPointer"
+            @pointerdown="onPointer"
+            @pointerleave="onLeave"
+          >
+            <polygon :points="chart.fresnel" class="fresnel" />
+            <path :d="chart.terrain" class="terrain" />
+            <line v-bind="chart.los" class="los" />
+            <line
+              v-for="m in chart.masts"
+              :key="m.end"
+              :x1="m.x"
+              :x2="m.x"
+              :y1="m.ground"
+              :y2="m.top"
+              :class="`mast node-${m.end}`"
+            />
+            <template v-if="result.verdict !== 'clear'">
+              <line :x1="chart.worst.x" :x2="chart.worst.x" :y1="0" :y2="H" class="worst-guide" />
+            </template>
+            <template v-if="hovered">
+              <line :x1="hovered.x" :x2="hovered.x" :y1="0" :y2="H" class="hover-guide" />
+              <line :x1="hovered.x" :x2="hovered.x" :y1="hovered.ground" :y2="hovered.line" class="hover-gap" />
+            </template>
+          </svg>
+          <!-- Round marks in HTML: in the stretched SVG a circle would turn oval. -->
+          <template v-if="hovered">
+            <i class="hover-dot on-line" :style="{ left: `${hovered.pct}%`, top: `${(hovered.line / H) * 100}%` }" />
+            <i class="hover-dot on-ground" :style="{ left: `${hovered.pct}%`, top: `${(hovered.ground / H) * 100}%` }" />
+            <span class="readout mono" :class="hovered.side" :style="{ left: `${hovered.pct}%` }">
+              {{ km(hovered.d) }} ·
+              {{
+                hovered.margin >= 0
+                  ? `ligne ${hovered.margin} m au-dessus du sol`
+                  : `sol ${-hovered.margin} m au-dessus de la ligne`
+              }}
+            </span>
           </template>
-        </svg>
+        </div>
         <figcaption class="ends">
           <span class="node-a">{{ aName }}</span>
           <span class="mono scale">{{ chart.lo }}–{{ chart.hi }} m · {{ km(result.distKm) }}</span>
@@ -189,6 +265,58 @@ const summary = computed(() => {
 
 .chart {
   margin: 0;
+}
+
+.plot {
+  position: relative;
+}
+
+.hover-guide {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.hover-gap {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.hover-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hover-dot.on-line {
+  background: var(--accent);
+}
+
+.hover-dot.on-ground {
+  background: var(--terrain-edge);
+}
+
+.readout {
+  position: absolute;
+  top: 4px;
+  padding: 1px 5px;
+  font-size: 10.5px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.readout.right {
+  margin-left: 8px;
+}
+
+.readout.left {
+  transform: translateX(calc(-100% - 8px));
 }
 
 svg {

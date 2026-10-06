@@ -214,3 +214,40 @@ func TestRSSIIsSplitByDirection(t *testing.T) {
 		t.Errorf("RSSIMeanBA = %v, want -110", v.RSSIMeanBA)
 	}
 }
+
+func TestMeasurementsOutliveTheTrafficWindow(t *testing.T) {
+	ag := NewAggregator(10, 64, time.Hour)
+	ag.MeasureRetention = 14 * 24 * time.Hour
+	t0 := time.Now().UTC()
+	id := LinkID{A: "A", B: "B"}
+	// One trace with signal in both directions, then a link heard only as a
+	// path hop (no signal) for a while.
+	ag.Add(&Decoded{Samples: []Sample{
+		sampleAt("A", "B", KindTrace, f64(3), t0),
+		sampleAt("B", "A", KindTrace, f64(-2), t0),
+	}})
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTopology, nil, t0.Add(2*time.Hour))}})
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("C", "D", KindTopology, nil, t0)}})
+
+	// Three days on: the traffic window has long passed, the trace has not.
+	if n := ag.Evict(t0.Add(72 * time.Hour)); n != 1 {
+		t.Fatalf("evicted %d, want only the unmeasured C-D", n)
+	}
+	v, ok := ag.Get(id)
+	if !ok || v.Kind != "trace" || v.Quality == nil || *v.Quality != -2 {
+		t.Fatalf("link = %+v, want a trace link at -2 dB", v)
+	}
+	if v.LastMeasured == nil || !v.LastMeasured.Equal(t0) {
+		t.Errorf("lastMeasured = %v, want %v", v.LastMeasured, t0)
+	}
+
+	// Still heard as a hop, but the trace is past retention: back to topology.
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTopology, nil, t0.Add(15*24*time.Hour))}})
+	if n := ag.Evict(t0.Add(15*24*time.Hour + time.Minute)); n != 0 {
+		t.Fatalf("evicted %d, the link was just heard", n)
+	}
+	v, _ = ag.Get(id)
+	if v.Kind != "topology" || v.SNR != nil || v.Quality != nil || v.LastMeasured != nil {
+		t.Errorf("link = %+v, want a plain topology link", v)
+	}
+}

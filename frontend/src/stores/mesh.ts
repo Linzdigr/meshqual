@@ -103,6 +103,7 @@ export const useMeshStore = defineStore('mesh', () => {
   const framesMax = computed(() => config.value?.framesMax ?? 20)
   const pushIntervalMs = computed(() => config.value?.pushIntervalMs ?? 2000)
   const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
+  const measureRetentionSec = computed(() => config.value?.measureRetentionSec ?? 14 * 86_400)
   /** Links shown by the "Fonctionnel" view: weaker direction at or above the usable threshold. */
   const functionalCount = computed(
     () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
@@ -212,7 +213,14 @@ export const useMeshStore = defineStore('mesh', () => {
     frames.value = []
     history.value = []
     if (!linkId) return
-    await Promise.all([loadFrames(linkId), loadHistory(linkId)])
+    // A link whose last measurement predates the traffic window would show an
+    // empty sparkline over 24 h: widen it to the whole retention period.
+    const age = links.value.features.find((f) => f.properties.linkId === linkId)?.properties.measureAgeSec
+    const wide = age !== undefined && age > 86_400
+    await Promise.all([
+      loadFrames(linkId),
+      wide ? loadHistory(linkId, `${measureRetentionSec.value}s`, '12h') : loadHistory(linkId),
+    ])
   }
 
   async function loadFrames(linkId: string) {
@@ -274,6 +282,7 @@ export const useMeshStore = defineStore('mesh', () => {
     palette,
     altitude,
     asymmetryThresholdDb,
+    measureRetentionSec,
     asymmetricCount,
     functionalCount,
     oneByteHashCount,

@@ -18,6 +18,8 @@ const props = defineProps<{
   oneByteHashCount: number
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
+  /** How long a measurement stays on the map, in days. */
+  retentionDays: number
 }>()
 
 const emit = defineEmits<{
@@ -121,6 +123,9 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
             <span class="note">{{ b.note }}</span>
           </li>
         </ul>
+        <p class="caveat">
+          Une mesure reste affichée {{ retentionDays }} jours ; le trait pâlit à mesure qu'elle vieillit.
+        </p>
       </div>
 
       <div v-if="mode === 'asymmetry'" class="block">

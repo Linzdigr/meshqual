@@ -32,7 +32,10 @@ type Deps struct {
 	CORSOrigins  []string
 	PushInterval time.Duration
 	LiveWindow   time.Duration
-	FramesMax    int
+	// MeasureRetention is how long a link keeps its signal values after it was
+	// last heard; the UI fades links by the age of their last measurement.
+	MeasureRetention time.Duration
+	FramesMax        int
 	// AsymmetryThresholdDb is passed to the UI for its asymmetry view.
 	AsymmetryThresholdDb float64
 	// NodeMaxAge hides nodes not heard for longer from /api/nodes. 0 disables.

@@ -74,6 +74,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	resolver := ingest.NewResolver()
 	resolver.MaxHopKm = cfg.MaxHopKm
 	aggregator := ingest.NewAggregator(cfg.FramesPerLink, cfg.SNRSamplesPerLink, cfg.LiveWindow.D())
+	aggregator.MeasureRetention = cfg.MeasureRetention.D()
 	aggregator.MinDirectionSamples = cfg.MinDirectionSamples
 	events := hub.New(64)
 
@@ -98,7 +99,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 			PushInterval:  cfg.PushInterval.D(),
 		}, log)
 
-	if samples, err := st.LoadRecentSamples(ctx, time.Now().UTC().Add(-cfg.LiveWindow.D()), 500_000); err != nil {
+	now := time.Now().UTC()
+	if samples, err := st.LoadRecentSamples(ctx, now.Add(-cfg.LiveWindow.D()), now.Add(-cfg.MeasureRetention.D()), 500_000); err != nil {
 		log.Warn("could not warm link table", "err", err)
 	} else if len(samples) > 0 {
 		dropped := pipeline.WarmFromSamples(samples)
@@ -140,6 +142,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Store: st, Hub: events, Sources: sources, Log: log,
 		CORSOrigins: cfg.CORSOrigins, PushInterval: cfg.PushInterval.D(),
 		LiveWindow: cfg.LiveWindow.D(), FramesMax: cfg.FramesPerLink,
+		MeasureRetention:     cfg.MeasureRetention.D(),
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
 		Profiles:             profiler(cfg),
