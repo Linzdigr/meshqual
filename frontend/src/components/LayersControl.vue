@@ -77,12 +77,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Sits in the map's right-hand control column, under the zoom buttons. */
 .layers {
-  position: absolute;
-  top: 78px;
-  right: 10px;
-  z-index: 3;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

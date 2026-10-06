@@ -36,6 +36,7 @@ export const LANES_SOURCE = 'lanes'
 /** The selected link's per-direction readings, one line feature per direction. */
 export const FOCUS_LABELS_SOURCE = 'focus-labels'
 const PROFILE_MARK_SOURCE = 'profile-mark'
+const TRACE_PATH_SOURCE = 'trace-path'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
@@ -51,6 +52,9 @@ const LAYER_NODE_WARN = 'nodes-hash-warn'
 const LAYER_NODE_LABELS = 'nodes-labels'
 const LAYER_FOCUS_LABELS = 'focus-labels'
 const LAYER_PROFILE_MARK = 'profile-mark'
+const LAYER_TRACE_LINE = 'trace-path-line'
+const LAYER_TRACE_STOPS = 'trace-path-stops'
+const LAYER_TRACE_NUMBERS = 'trace-path-numbers'
 
 /**
  * Tile source. OpenStreetMap's own tiles carry a usage policy that forbids
@@ -109,6 +113,8 @@ interface ActiveProperties {
   weight: number
   /** SNR of the newest packet, else its direction's median, else the link quality. */
   snrActive?: number
+  /** A leg of a trace sent from this browser: shown whatever the view filters. */
+  trace?: boolean
 }
 
 const CHEVRON = 'chevron'
@@ -324,6 +330,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [PROFILE_MARK_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [TRACE_PATH_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ALTITUDE_SOURCE]: {
         type: 'raster-dem',
         tiles: [TERRARIUM_URL],
@@ -513,6 +520,21 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'line-dasharray': DASH_FRAMES[0] as unknown as ExpressionSpecification,
       },
     },
+    // The path being built for a trace (stores/trace.ts), from the companion
+    // through the picked nodes in order.
+    {
+      id: LAYER_TRACE_LINE,
+      type: 'line' as const,
+      source: TRACE_PATH_SOURCE,
+      filter: ['==', ['geometry-type'], 'LineString'] as ExpressionSpecification,
+      layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
+      paint: {
+        'line-color': dark ? '#3987e5' : '#2a78d6',
+        'line-width': 3,
+        'line-dasharray': [1, 1.6],
+        'line-opacity': 0.9,
+      },
+    },
     {
       id: LAYER_NODES,
       type: 'circle' as const,
@@ -604,6 +626,32 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-halo-width': 2,
       },
     },
+    // Picked nodes of the trace path, numbered in order over their circle.
+    {
+      id: LAYER_TRACE_STOPS,
+      type: 'circle' as const,
+      source: TRACE_PATH_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      paint: {
+        'circle-radius': 9,
+        'circle-color': dark ? '#3987e5' : '#2a78d6',
+        'circle-stroke-color': surface,
+        'circle-stroke-width': 2,
+      },
+    },
+    {
+      id: LAYER_TRACE_NUMBERS,
+      type: 'symbol' as const,
+      source: TRACE_PATH_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      layout: {
+        'text-field': ['get', 'n'] as ExpressionSpecification,
+        'text-size': 11,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: { 'text-color': '#ffffff' },
+    },
     // The point under the pointer on the line-of-sight chart, placed on the link.
     {
       id: LAYER_PROFILE_MARK,
@@ -694,7 +742,11 @@ export function useMapLibre(opts: UseMapOptions) {
   let pendingLinks: FeatureCollection<LinkProperties> | null = null
   let pendingNodes: FeatureCollection<NodeProperties> | null = null
 
-  const active = new Map<string, { expiresAt: number; feature: Feature<ActiveProperties, LineString> }>()
+  /** Animated links; `local` ones come from a trace sent here, not from the server. */
+  const active = new Map<
+    string,
+    { expiresAt: number; feature: Feature<ActiveProperties, LineString>; local?: boolean }
+  >()
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   let raf = 0
   let dashFrame = 0
@@ -769,15 +821,28 @@ export function useMapLibre(opts: UseMapOptions) {
       })
     }
 
-    // Nodes sit on top of links and win a click that touches both.
+    // Nodes sit on top of links and win a click that touches both. Among
+    // close nodes the nearest to the pointer wins, not whichever drew last.
     const nodeAt = (point: maplibregl.Point): string | null => {
-      if (!map) return null
+      const m = map
+      if (!m) return null
       const box: [maplibregl.PointLike, maplibregl.PointLike] = [
         [point.x - CLICK_TOLERANCE, point.y - CLICK_TOLERANCE],
         [point.x + CLICK_TOLERANCE, point.y + CLICK_TOLERANCE],
       ]
-      const key = map.queryRenderedFeatures(box, { layers: [LAYER_NODES] })[0]?.properties?.['key']
-      return typeof key === 'string' ? key : null
+      let best: string | null = null
+      let bestD = Infinity
+      for (const f of m.queryRenderedFeatures(box, { layers: [LAYER_NODES] })) {
+        const key = f.properties?.['key']
+        if (typeof key !== 'string' || f.geometry.type !== 'Point') continue
+        const p = m.project(f.geometry.coordinates as [number, number])
+        const d = (p.x - point.x) ** 2 + (p.y - point.y) ** 2
+        if (d < bestD) {
+          best = key
+          bestD = d
+        }
+      }
+      return best
     }
 
     map.on('click', (e) => {
@@ -868,8 +933,9 @@ export function useMapLibre(opts: UseMapOptions) {
         },
       })
     }
-    // A link filtered out or scrolled off the map stops animating with it.
-    for (const id of active.keys()) if (!present.has(id)) active.delete(id)
+    // A link filtered out or scrolled off the map stops animating with it. A
+    // trace leg may join nodes with no link yet: it runs its course.
+    for (const [id, a] of active) if (!present.has(id) && !a.local) active.delete(id)
     syncActive()
   }
 
@@ -960,9 +1026,10 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setFilter(LAYER_LANES, ['all', ['==', ['get', 'measured'], true], notIn('laneId', activeLanes), ...emph])
     map.setFilter(LAYER_LANES_MISSING, ['all', ['==', ['get', 'measured'], false], ...emph])
     map.setFilter(LAYER_LANE_ARROWS, only ? EMPHASIZED : null)
+    const viewActive = functional ? ['==', ['get', 'functional'], true] : only ? EMPHASIZED : null
     map.setFilter(
       LAYER_ACTIVE,
-      functional ? ['==', ['get', 'functional'], true] : only ? EMPHASIZED : null,
+      viewActive ? (['any', ['==', ['get', 'trace'], true], viewActive] as ExpressionSpecification) : null,
     )
     map.setFilter(
       LAYER_CASING,
@@ -1157,6 +1224,9 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_TRACE_NUMBERS,
+      LAYER_TRACE_STOPS,
+      LAYER_TRACE_LINE,
       LAYER_PROFILE_MARK,
       LAYER_FOCUS_LABELS,
       LAYER_NODE_LABELS,
@@ -1240,6 +1310,63 @@ export function useMapLibre(opts: UseMapOptions) {
     } as never)
   }
 
+  function nodeCoords(key: string): [number, number] | undefined {
+    const g = pendingNodes?.features.find((f) => f.properties.key === key)?.geometry
+    return g?.type === 'Point' ? (g.coordinates as [number, number]) : undefined
+  }
+
+  /**
+   * Animates trace legs with the live-packet animation, each in the direction
+   * it travelled, coloured by the SNR measured at its far end when known.
+   */
+  function animateHops(hops: { from: string; to: string; snr?: number }[]) {
+    const now = Date.now()
+    for (const h of hops) {
+      const a = nodeCoords(h.from)
+      const b = nodeCoords(h.to)
+      if (!a || !b || h.from === h.to) continue
+      const forward = h.from <= h.to
+      const linkId = forward ? `${h.from}:${h.to}` : `${h.to}:${h.from}`
+      const p = findLink(linkId)?.properties
+      const snr = h.snr ?? (p && (forward ? p.snrMedianAB : p.snrMedianBA))
+      active.set(linkId, {
+        expiresAt: now + ACTIVE_MS,
+        local: true,
+        feature: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [a, b] },
+          properties: {
+            linkId,
+            laneId: laneId(linkId, forward),
+            lanes: !!p && p.kind !== 'topology',
+            emphasized: !!p && isAsymmetric(p, opts.asymThreshold.value),
+            functional: !!p && isFunctional(p, opts.thresholds.value),
+            weight: p?.weight ?? 1,
+            trace: true,
+            ...(snr !== undefined && { snrActive: snr }),
+          },
+        },
+      })
+    }
+    syncActive()
+  }
+
+  /** Draws the path being built for a trace: a dashed line and numbered stops. */
+  function setTracePath(start: string | null, keys: string[]) {
+    const src = map?.getSource(TRACE_PATH_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    const stops = keys.map((k) => nodeCoords(k))
+    const line = [start ? nodeCoords(start) : undefined, ...stops].filter((c) => c !== undefined)
+    const features: unknown[] = []
+    if (line.length >= 2) {
+      features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } })
+    }
+    stops.forEach((c, i) => {
+      if (c) features.push({ type: 'Feature', properties: { n: String(i + 1) }, geometry: { type: 'Point', coordinates: c } })
+    })
+    src.setData({ type: 'FeatureCollection', features } as never)
+  }
+
   function fitTo(bbox: BBox) {
     map?.fitBounds(
       [
@@ -1270,6 +1397,8 @@ export function useMapLibre(opts: UseMapOptions) {
     applyAltitude,
     applyFocus,
     markOnLink,
+    animateHops,
+    setTracePath,
     focusLink,
     focusPoints,
   }

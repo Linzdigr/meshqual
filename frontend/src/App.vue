@@ -11,9 +11,12 @@ import LinkPanel from '@/components/LinkPanel.vue'
 import NodePanel from '@/components/NodePanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import LayersControl from '@/components/LayersControl.vue'
+import TraceControl from '@/components/TraceControl.vue'
+import { useTraceStore } from '@/stores/trace'
 import type { AltitudeRange } from '@/map/elevation'
 
 const store = useMeshStore()
+const trace = useTraceStore()
 const { mode, dark, cycle } = useTheme()
 
 const selectedRef = computed(() => store.selectedLinkId)
@@ -201,6 +204,29 @@ const counts = computed(() => {
   return out
 })
 
+/** While a trace path is being picked, a node click adds it to the path. */
+function onSelectNode(key: string | null) {
+  if (trace.selecting) {
+    if (key) trace.toggleNode(key)
+    return
+  }
+  store.selectNode(key)
+}
+
+// Picking a path wants the whole map: close any panel and its focus.
+watch(
+  () => trace.selecting,
+  (on) => {
+    if (!on) return
+    store.selectLink(null)
+    store.selectNode(null)
+  },
+)
+
+function runTrace() {
+  void trace.run((hops) => meshMap.value?.animateHops(hops))
+}
+
 function onMoveEnd(b: BBox) {
   store.setBBox(b)
   void store.refreshLinks()
@@ -267,17 +293,23 @@ watch(
         :measure-retention-sec="store.measureRetentionSec"
         :altitude="store.altitude"
         :no-auto-fit="deepLink"
+        :trace-path="trace.selecting || trace.running ? trace.path : []"
+        :trace-start="trace.companion?.publicKey ?? null"
         @moveend="onMoveEnd"
-        @select="(id) => store.selectLink(id)"
-        @select-node="(key) => store.selectNode(key)"
+        @select="(id) => !trace.selecting && store.selectLink(id)"
+        @select-node="onSelectNode"
         @altitude-range="(r) => (altitudeRange = r)"
       />
 
-      <LayersControl
-        :altitude="store.altitude"
-        :range="altitudeRange"
-        @toggle-altitude="store.altitude = !store.altitude"
-      />
+      <!-- The map's right-hand control column, under MapLibre's zoom buttons. -->
+      <div class="map-tools">
+        <TraceControl @run="runTrace" />
+        <LayersControl
+          :altitude="store.altitude"
+          :range="altitudeRange"
+          @toggle-altitude="store.altitude = !store.altitude"
+        />
+      </div>
 
       <div ref="legendEl" class="overlay left">
         <SnrLegend
@@ -338,6 +370,17 @@ main {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.map-tools {
+  position: absolute;
+  top: 78px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 .overlay {

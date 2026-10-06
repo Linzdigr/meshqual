@@ -20,6 +20,9 @@ const props = defineProps<{
   palette: SnrPalette
   measureRetentionSec: number
   altitude: boolean
+  /** Nodes picked for a trace, in order, and the companion it starts from. */
+  tracePath: string[]
+  traceStart: string | null
   /** Skip framing all nodes on first load: a shared link frames its own target. */
   noAutoFit?: boolean
 }>()
@@ -130,7 +133,15 @@ defineExpose({
   focusPoints: (points: [number, number][], padding: Padding) => map.focusPoints(points, padding),
   /** Puts a point a fraction of the way along a link, or clears it with null. */
   markOnLink: (linkId: string | null, fraction: number | null) => map.markOnLink(linkId, fraction),
+  /** Plays trace legs with the live-packet animation. */
+  animateHops: (hops: { from: string; to: string; snr?: number }[]) => map.animateHops(hops),
 })
+
+// Redrawn when nodes refresh too: the path is drawn from their positions.
+watch(
+  () => [props.tracePath, props.traceStart, props.nodes] as const,
+  ([keys, start]) => map.setTracePath(start, keys),
+)
 
 watch(
   () => [props.mode, props.asymOnly] as const,

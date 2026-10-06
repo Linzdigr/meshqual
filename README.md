@@ -171,6 +171,22 @@ SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
   disables it), `losResource`, `losFreqMHz` (869.525), `losAntennaM` (10 m,
   assumed at every node). The model is bare ground, without buildings or trees.
 
+## Traces from a companion
+
+The map's **Trace** button (under the zoom controls) connects a MeshCore
+companion radio to the browser over Bluetooth or USB. Once connected, clicking
+nodes builds a path in order, starting from a neighbour of the companion, and
+**Lancer la trace** sends a TRACE packet along it and back (`A B C` goes out as
+`A B C B A`), so every link on the path is measured in both directions. The legs
+play the live-packet animation, and the panel shows OK with the SNR of each hop,
+or KO when nothing came back.
+
+- Chrome or Edge (desktop or Android), over HTTPS or localhost: Safari and
+  Firefox have neither Web Bluetooth nor Web Serial.
+- Paths use 2-byte hashes, which repeaters read from firmware v1.11.
+- Results are shown in the browser only. The map records them when the
+  observer hears the trace go by, like any other packet.
+
 ## API
 
 | Route | Description |
