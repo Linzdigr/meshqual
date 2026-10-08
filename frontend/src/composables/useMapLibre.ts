@@ -253,19 +253,24 @@ const FOCUS_DIM = 0.07
 const NODE_FOCUS_DIM = 0.25
 
 /**
- * On-screen angle of the segment a → b in degrees, clockwise (screen y points
- * down), folded into (-90, 90] so the A → B label always takes the upper side.
- * The map never rotates or tilts, so Web Mercator alone gives the angle at any
- * zoom.
+ * On-screen heading of travel from a to b in degrees, clockwise (screen y
+ * points down). The map never rotates or tilts, so Web Mercator alone gives
+ * it at any zoom.
  */
-function screenAngle(a: [number, number], b: [number, number]): number {
+function travelAngle(a: [number, number], b: [number, number]): number {
   const y = (lat: number) => -Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))
   const dx = ((b[0] - a[0]) * Math.PI) / 180
   const dy = y(b[1]) - y(a[1])
-  let deg = (Math.atan2(dy, dx) * 180) / Math.PI
-  if (deg > 90) deg -= 180
-  if (deg <= -90) deg += 180
-  return deg
+  return (Math.atan2(dy, dx) * 180) / Math.PI
+}
+
+/**
+ * Where the label of the direction from → to sits: on the right of travel,
+ * the side its lane is drawn on (positive line-offset), so in the "Par sens"
+ * view each reading lies against its own lane, whichever way the link runs.
+ */
+function directionSide(from: [number, number], to: [number, number]) {
+  return focusSide(travelAngle(from, to), -1)
 }
 
 interface FocusLabel {
@@ -283,7 +288,7 @@ interface FocusLabel {
  */
 function focusSide(angle: number, side: -1 | 1): Pick<FocusLabel, 'anchor' | 'offset'> {
   const rad = (angle * Math.PI) / 180
-  // side 1: the normal pointing up (screen y down), for the A → B label.
+  // side -1: the right of travel at this heading; side 1: the left.
   const nx = Math.sin(rad) * side
   const ny = -Math.cos(rad) * side
   const v = ny < -0.38 ? 'bottom' : ny > 0.38 ? 'top' : ''
@@ -605,7 +610,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       },
     },
     // The selected link's SNR and RSSI, one upright label per direction in the
-    // sender's colour, at the link's midpoint on either side of it (focusSide).
+    // sender's colour, at the link's midpoint beside its own lane (directionSide).
     // Asymmetry view only (see applyView): the others show one value per link.
     {
       id: LAYER_FOCUS_LABELS,
@@ -1164,7 +1169,6 @@ export function useMapLibre(opts: UseMapOptions) {
           : `${snr.toFixed(1)} dB${rssi === undefined ? '' : ` · ${Math.round(rssi)} dBm`}`
       const [pa, pb] = f.geometry.coordinates as [[number, number], [number, number]]
       const mid = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2]
-      const angle = screenAngle(pa, pb)
       features.push(
         {
           type: 'Feature',
@@ -1172,7 +1176,7 @@ export function useMapLibre(opts: UseMapOptions) {
           properties: {
             text: reading(p.snrMedianAB, p.snrCountAB, p.rssiMeanAB),
             color: dark ? NODE_A_DARK : NODE_A_LIGHT,
-            ...focusSide(angle, 1),
+            ...directionSide(pa, pb),
           },
         },
         {
@@ -1181,7 +1185,7 @@ export function useMapLibre(opts: UseMapOptions) {
           properties: {
             text: reading(p.snrMedianBA, p.snrCountBA, p.rssiMeanBA),
             color: dark ? NODE_B_DARK : NODE_B_LIGHT,
-            ...focusSide(angle, -1),
+            ...directionSide(pb, pa),
           },
         },
       )
@@ -1427,7 +1431,7 @@ export function useMapLibre(opts: UseMapOptions) {
         properties: {
           text: `${h.snr.toFixed(1)} dB`,
           color: forward ? (dark ? NODE_A_DARK : NODE_A_LIGHT) : dark ? NODE_B_DARK : NODE_B_LIGHT,
-          ...focusSide(screenAngle(a, b), forward ? 1 : -1),
+          ...(forward ? directionSide(a, b) : directionSide(b, a)),
         },
       })
     }
