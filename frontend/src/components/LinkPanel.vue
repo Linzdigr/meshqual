@@ -6,6 +6,7 @@ import SnrSparkline from './SnrSparkline.vue'
 import ShareButton from './ShareButton.vue'
 import ProfileChart from './ProfileChart.vue'
 import { formatDuration } from '@/utils/duration'
+import { historySpan } from '@/utils/history'
 
 const props = defineProps<{
   link: LinkProperties | null
@@ -45,9 +46,9 @@ const losLabel: Record<string, string> = {
 const ACTIVE_LINK_SEC = 24 * 3600
 
 /**
- * Signal values outlive the traffic window (14 days by default). Past a day the
- * history covers the whole retention, and the header says how old the values
- * are when the link has been heard since without a signal reading.
+ * Signal values outlive the traffic window (14 days by default). Past a day
+ * the header says how old they are when the link has been heard since without
+ * a signal reading; the history chart spans the retention (utils/history).
  */
 const staleMeasure = computed(() => (props.link?.measureAgeSec ?? 0) > ACTIVE_LINK_SEC)
 const measuredBeforeSeen = computed(
@@ -374,7 +375,7 @@ const tiles = computed(() => {
       </p>
 
       <section>
-        <SnrSparkline :buckets="history" :period="staleMeasure ? `${retentionDays} j` : '24 h'" />
+        <SnrSparkline :buckets="history" :period="historySpan(retentionSec).label" />
       </section>
 
       <section>

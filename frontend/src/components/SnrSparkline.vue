@@ -10,7 +10,7 @@ const props = withDefaults(
     width?: number
     height?: number
   }>(),
-  { period: '24 h', width: 258, height: 44 },
+  { period: '14 j', width: 258, height: 44 },
 )
 
 interface Point {
@@ -31,7 +31,8 @@ const PAD = 3
  */
 const model = computed(() => {
   const pts = (props.buckets ?? []).filter((b) => b.snrAvg !== null)
-  if (pts.length < 2) return null
+  // A single trace is a single point: still worth showing, as a dot.
+  if (pts.length === 0) return null
 
   const values = pts.flatMap((b) => [b.snrAvg!, b.snrMin ?? b.snrAvg!, b.snrMax ?? b.snrAvg!])
   let lo = Math.min(...values)
@@ -44,7 +45,7 @@ const model = computed(() => {
 
   const w = props.width - PAD * 2
   const h = props.height - PAD * 2
-  const x = (i: number) => PAD + (i / (pts.length - 1)) * w
+  const x = (i: number) => (pts.length === 1 ? PAD + w / 2 : PAD + (i / (pts.length - 1)) * w)
   const y = (v: number) => PAD + h - ((v - lo) / (hi - lo)) * h
 
   const mean: Point[] = pts.map((b, i) => ({
@@ -63,6 +64,9 @@ const model = computed(() => {
     .reverse()
 
   return {
+    single: pts.length === 1,
+    // The lone bucket's min-max span, drawn as a bar under its dot.
+    range: { y1: y(pts[0]!.snrMax ?? pts[0]!.snrAvg!), y2: y(pts[0]!.snrMin ?? pts[0]!.snrAvg!) },
     line: mean.map((p) => `${p.x},${p.y}`).join(' '),
     band: `${upper.join(' ')} ${lower.join(' ')}`,
     points: mean,
@@ -142,8 +146,21 @@ function fmt(at: string): string {
         @keydown="onKey"
         @blur="hover = null"
       >
-        <polygon :points="model.band" class="band" />
-        <polyline :points="model.line" class="line" />
+        <template v-if="model.single">
+          <!-- One bucket: its min-max as a bar, its mean as a dot. -->
+          <line
+            :x1="model.points[0]!.x"
+            :x2="model.points[0]!.x"
+            :y1="model.range.y1"
+            :y2="model.range.y2"
+            class="range"
+          />
+          <circle :cx="model.points[0]!.x" :cy="model.points[0]!.y" r="3.5" class="dot" />
+        </template>
+        <template v-else>
+          <polygon :points="model.band" class="band" />
+          <polyline :points="model.line" class="line" />
+        </template>
         <template v-if="active">
           <line :x1="active.x" :x2="active.x" :y1="0" :y2="height" class="guide" />
           <circle :cx="active.x" :cy="active.y" r="4" class="dot" />
@@ -158,7 +175,7 @@ function fmt(at: string): string {
     </div>
   </figure>
   <p v-else class="empty">
-    Pas assez d'historique sur {{ period }} : il faut au moins deux intervalles avec des mesures.
+    Aucune mesure de signal sur {{ period }}.
   </p>
 </template>
 
@@ -201,6 +218,13 @@ svg:focus-visible {
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+.range {
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.3;
 }
 
 .guide {

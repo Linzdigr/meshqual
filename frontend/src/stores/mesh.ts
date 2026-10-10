@@ -18,6 +18,7 @@ import type {
 import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
 import { isAsymmetric, isFunctional, type ViewMode } from '@/map/lanes'
 import { NODE_ISSUES, nodeIssues, type NodeIssue } from '@/map/nodeIssues'
+import { historySpan } from '@/utils/history'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
 
@@ -268,14 +269,8 @@ export const useMeshStore = defineStore('mesh', () => {
     frames.value = []
     history.value = []
     if (!linkId) return
-    // A link whose last measurement predates the traffic window would show an
-    // empty sparkline over 24 h: widen it to the whole retention period.
-    const age = links.value.features.find((f) => f.properties.linkId === linkId)?.properties.measureAgeSec
-    const wide = age !== undefined && age > 86_400
-    await Promise.all([
-      loadFrames(linkId),
-      wide ? loadHistory(linkId, `${measureRetentionSec.value}s`, '12h') : loadHistory(linkId),
-    ])
+    const span = historySpan(measureRetentionSec.value)
+    await Promise.all([loadFrames(linkId), loadHistory(linkId, span.window, span.bucket)])
   }
 
   async function loadFrames(linkId: string) {
@@ -288,7 +283,7 @@ export const useMeshStore = defineStore('mesh', () => {
     }
   }
 
-  async function loadHistory(linkId: string, window = '24h', bucket = '1h') {
+  async function loadHistory(linkId: string, window = '336h', bucket = '4h') {
     try {
       const res = await api.history(linkId, window, bucket)
       if (selectedLinkId.value !== linkId) return
