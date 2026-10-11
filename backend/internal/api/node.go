@@ -78,7 +78,7 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request) {
 	// A listen-only observer's panel lists what it hears; anyone else's, the
 	// links the map draws.
 	links := s.mapLinks()
-	if n.ListenOnly() {
+	if s.listenOnly(n) {
 		links = s.liveLinks()
 	}
 
@@ -160,6 +160,6 @@ func (s *Server) info(key string) nodeInfo {
 		Key: key, Name: n.Name, NodeType: meshcore.AdvTypeName(n.NodeType),
 		Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 		RegionScope: n.RegionScope.String(),
-		ListenOnly:  n.ListenOnly(),
+		ListenOnly:  s.listenOnly(n),
 	}
 }

@@ -197,7 +197,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           <span class="mono count">{{ listenOnlyCount }}</span>
         </p>
         <p class="caveat">
-          Publie ce qu'il entend mais n'a jamais été vu relayer : ses liens ne sont pas tracés. Son panneau
+          Publie ce qu'il entend mais n'a pas été vu relayer depuis 48 h : ses liens ne sont pas tracés. Son panneau
           liste ce qu'il entend.
         </p>
       </div>

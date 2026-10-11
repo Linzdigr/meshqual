@@ -148,6 +148,12 @@ ages, and the link panel says how old it is.
 
 Nodes not heard for `nodeMaxAge` (default 48 h) leave the map. A node is heard
 when it adverts, relays in a path that names it unambiguously, or observes.
+
+An observer (publishing to our brokers, or named "OBS" / "Observer") that no
+path has named as a relay for `relayWindow` (default 48 h) is listen-only: its
+repeat is off, so it is drawn as a diamond and its links stay off the map and
+out of the backbone analysis. Adverts do not say whether repeat is on, so this
+is only known from paths.
 It stays known to the server, which still needs it to read paths.
 
 Links longer than `maxHopKm` (default 300 km) are dropped as path-hash collisions
@@ -186,9 +192,8 @@ answer (MeshCore node discovery, which gives the companion ↔ repeater link bot
 ways), then plans round trips from them along known links to the links that
 lack measurements (never measured, one way only, few values, or older than two
 days), up to 1–3 hops further. It picks, one at a time, the trace filling the
-most gaps, and sends them one after the other with a pause between each. Observers never
-seen relaying are left out: those publishing to our brokers, or named "OBS" /
-"Observer", unless a path has named them as a relay.
+most gaps, and sends them one after the other with a pause between each.
+Listen-only observers are left out (see below).
 
 - Chrome or Edge (desktop or Android), over HTTPS or localhost: Safari and
   Firefox have neither Web Bluetooth nor Web Serial.

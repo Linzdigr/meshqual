@@ -313,9 +313,9 @@ func TestNodesGeoJSON(t *testing.T) {
 	}
 }
 
-// An observer never seen relaying is listen-only: flagged on the map, its
-// links left out of it but kept in its own panel. Once a path names it as a
-// relay it is an ordinary node again.
+// An observer not seen relaying lately is listen-only: flagged on the map,
+// its links left out of it but kept in its own panel. Once a path names it as
+// a relay it is an ordinary node again.
 func TestListenOnlyObservers(t *testing.T) {
 	f := newFixture(t)
 	obs := keyFor(0x55)
@@ -349,6 +349,12 @@ func TestListenOnlyObservers(t *testing.T) {
 	}
 	if _, body := f.get(t, "/api/nodes/"+obs); !strings.Contains(string(body), f.a) {
 		t.Errorf("the observer's panel lost what it hears: %s", body)
+	}
+
+	// Having relayed long ago does not count: repeat may have been turned off.
+	f.resolver.MarkRelay(obs, time.Now().Add(-72*time.Hour))
+	if lo := listenOnly(); !lo[obs] {
+		t.Error("an observer last seen relaying 3 days ago is not listen-only")
 	}
 
 	// Now a path names it as a relay.

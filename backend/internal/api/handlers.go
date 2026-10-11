@@ -83,7 +83,7 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		fc.Features = append(fc.Features, pointFeature(n.Key, [2]float64{*n.Longitude, *n.Latitude},
-			nodeProps(n)))
+			nodeProps(n, s.listenOnly(n))))
 	}
 	fc.Meta = &Meta{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339), Total: len(nodes),
@@ -311,7 +311,7 @@ func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
 
 // nodeProps are a node's GeoJSON properties. pathHashSize and regionScope are
 // omitted until a flood advert has revealed them.
-func nodeProps(n ingest.Node) map[string]any {
+func nodeProps(n ingest.Node, listenOnly bool) map[string]any {
 	p := map[string]any{
 		"key":      n.Key,
 		"name":     n.Name,
@@ -323,7 +323,7 @@ func nodeProps(n ingest.Node) map[string]any {
 	if s := n.RegionScope.String(); s != "" {
 		p["regionScope"] = s
 	}
-	if n.ListenOnly() {
+	if listenOnly {
 		p["listenOnly"] = true
 	}
 	return p
@@ -335,6 +335,15 @@ func (s *Server) silent(n ingest.Node) bool {
 	return s.d.NodeMaxAge > 0 && time.Since(n.LastHeard) > s.d.NodeMaxAge
 }
 
+// listenOnly applies ingest.Node.ListenOnly with the configured window.
+func (s *Server) listenOnly(n ingest.Node) bool {
+	w := s.d.RelayWindow
+	if w <= 0 {
+		w = 48 * time.Hour
+	}
+	return n.ListenOnly(time.Now(), w)
+}
+
 // mapLinks is liveLinks without those of listen-only observers: they relay
 // nothing, so their links say what they hear, not where traffic can go. The
 // observer's own panel still lists them (node.go).
@@ -344,7 +353,7 @@ func (s *Server) mapLinks() []ingest.LinkView {
 	for _, l := range all {
 		na, _ := s.d.Resolver.Get(l.AKey)
 		nb, _ := s.d.Resolver.Get(l.BKey)
-		if na.ListenOnly() || nb.ListenOnly() {
+		if s.listenOnly(na) || s.listenOnly(nb) {
 			continue
 		}
 		out = append(out, l)

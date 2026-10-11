@@ -40,6 +40,8 @@ type Deps struct {
 	AsymmetryThresholdDb float64
 	// NodeMaxAge hides nodes not heard for longer from /api/nodes. 0 disables.
 	NodeMaxAge time.Duration
+	// RelayWindow: see ingest.Node.ListenOnly. 0 means 48 h.
+	RelayWindow time.Duration
 	// Elevation profiles for the line-of-sight check; nil disables it.
 	Profiles  Profiler
 	LosParams los.Params

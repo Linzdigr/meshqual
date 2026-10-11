@@ -36,6 +36,9 @@ type Config struct {
 	// NodeMaxAge hides from the map nodes not heard for this long. They stay
 	// known to the resolver, which still needs them to read paths. 0 disables.
 	NodeMaxAge Duration `json:"nodeMaxAge"`
+	// RelayWindow: an observer not named in any path for this long counts as
+	// listen-only (its repeat is off). Its links leave the map.
+	RelayWindow Duration `json:"relayWindow"`
 	// FramesPerLink is how many recent frames the detail panel can show.
 	FramesPerLink int `json:"framesPerLink"`
 	// SNRSamplesPerLink bounds the sample ring the exact percentiles come from.
@@ -105,6 +108,7 @@ func Default() Config {
 		LiveWindow:           Duration(24 * time.Hour),
 		MeasureRetention:     Duration(14 * 24 * time.Hour),
 		NodeMaxAge:           Duration(48 * time.Hour),
+		RelayWindow:          Duration(48 * time.Hour),
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,
 		MaxHopKm:             300,

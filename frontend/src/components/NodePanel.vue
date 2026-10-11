@@ -87,7 +87,7 @@ function snr(v: number | null): string {
     <template v-else>
       <p v-if="listenOnly" class="listen">
         <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 1 11 6 6 11 1 6Z" /></svg>
-        Observateur en écoute seule : il publie ce qu'il entend mais n'a jamais été vu relayer. Ses liens ne
+        Observateur en écoute seule : il publie ce qu'il entend mais n'a pas été vu relayer depuis 48 h. Ses liens ne
         sont pas tracés sur la carte.
       </p>
       <div class="tiles">

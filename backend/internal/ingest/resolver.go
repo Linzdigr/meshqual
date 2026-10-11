@@ -41,12 +41,17 @@ type Node struct {
 // convention their names say so ("FR35CESS-OBS-01", "Lorient Observer").
 var observerName = regexp.MustCompile(`(?i)obs`)
 
-// ListenOnly reports an observer never seen relaying: it publishes what it
-// hears but does not forward, so its links carry no traffic. The map draws it
-// apart and leaves its links out. An observer named in a path is an uplinked
-// repeater, and an ordinary node.
-func (n *Node) ListenOnly() bool {
-	return (n.Observer || observerName.MatchString(n.Name)) && n.LastRelayed.IsZero()
+// ListenOnly reports an observer not seen relaying within window of now: it
+// publishes what it hears but does not forward, so its links carry no
+// traffic. The map draws it apart and leaves its links out. An observer named
+// in a recent path is an uplinked repeater, and an ordinary node. The window
+// matters: adverts do not say whether repeating is on, so a node switched to
+// listen-only is only known by no longer showing up in paths.
+func (n *Node) ListenOnly(now time.Time, window time.Duration) bool {
+	if !n.Observer && !observerName.MatchString(n.Name) {
+		return false
+	}
+	return n.LastRelayed.IsZero() || now.Sub(n.LastRelayed) > window
 }
 
 // HasPosition reports whether this node can be drawn on a map.

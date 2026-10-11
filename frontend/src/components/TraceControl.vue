@@ -155,7 +155,7 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
               <li v-for="r in trace.discovered" :key="r.publicKey">
                 <span class="name">
                   {{ nameOf(r.publicKey) }}
-                  <small v-if="trace.observers.has(r.publicKey)" class="muted">observateur jamais vu relayer, non utilisé</small>
+                  <small v-if="trace.observers.has(r.publicKey)" class="muted">observateur en écoute seule, non utilisé</small>
                 </span>
                 <span class="mono" title="SNR reçu par le relais / reçu par le compagnon">
                   ↑ {{ fmtDb(r.snrAtRepeater) }} · ↓ {{ fmtDb(r.snrAtCompanion) }}
@@ -242,8 +242,8 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
           recevoir le résultat.
         </p>
         <p v-if="pickedObservers.length" class="warn">
-          {{ pickedObservers.join(', ') }} : observateur{{ pickedObservers.length > 1 ? 's' : '' }} jamais
-          vu{{ pickedObservers.length > 1 ? 's' : '' }} relayer. La trace risque de s'y arrêter.
+          {{ pickedObservers.join(', ') }} : observateur{{ pickedObservers.length > 1 ? 's' : '' }} en écoute
+          seule, pas vu{{ pickedObservers.length > 1 ? 's' : '' }} relayer depuis 48 h. La trace risque de s'y arrêter.
         </p>
         <p v-if="trace.path.length >= MAX_TRACE_HOPS" class="warn">
           {{ MAX_TRACE_HOPS }} étapes au plus : le paquet ne peut pas en porter davantage.

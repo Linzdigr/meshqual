@@ -150,6 +150,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		MeasureRetention:     cfg.MeasureRetention.D(),
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
+		RelayWindow:          cfg.RelayWindow.D(),
 		Profiles:             profiler(cfg),
 		LosParams:            los.Params{FreqMHz: cfg.LosFreqMHz, AntennaM: cfg.LosAntennaM, K: 4.0 / 3.0},
 		Version:              version, StartedAt: time.Now().UTC(),
