@@ -157,51 +157,8 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         </p>
       </div>
 
-      <div class="block">
-      </div>
-
-      <div class="block">
-      <p class="hashwarn">
-        <WarnIcon />
-        <span>Nœud à configurer</span>
-      </p>
-      <label class="only issue">
-        <input type="checkbox" :checked="issues.includes('hash1')" @change="emit('toggleIssue', 'hash1')" />
-        <span>Hash de chemin sur 1 octet</span>
-        <span class="mono count">{{ issueCounts.hash1 }}</span>
-      </label>
-      <p class="caveat">
-        256 valeurs seulement : les hashs se confondent et les sauts ne s'attribuent plus. Passer en
-        2 octets : <code>set path.hash.mode 1</code>.
-      </p>
-      <label class="only issue">
-        <input type="checkbox" :checked="issues.includes('noRegion')" @change="emit('toggleIssue', 'noRegion')" />
-        <span>Sans région par défaut</span>
-        <span class="mono count">{{ issueCounts.noRegion }}</span>
-      </label>
-      <p class="caveat">
-        Répéteurs et room servers dont les annonces partent sans région : les répéteurs réglés en
-        <code>region denyf *</code> les ignorent. Régler <code>region default &lt;nom&gt;</code> puis
-        <code>region save</code>.
-      </p>
-    </div>
-
-    <!-- Measured and trace links are coloured by SNR above; only topology links
+      <!-- Measured and trace links are coloured by SNR above; only topology links
            have a look of their own, so only they get a row (and a toggle). -->
-      <div v-if="listenOnlyCount > 0" class="block">
-        <p class="hashwarn">
-          <svg class="diamond" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-            <path d="M6 1 11 6 6 11 1 6Z" />
-          </svg>
-          <span>Observateur, écoute seule</span>
-          <span class="mono count">{{ listenOnlyCount }}</span>
-        </p>
-        <p class="caveat">
-          Publie ce qu'il entend mais n'a pas été vu relayer depuis 48 h : ses liens ne sont pas tracés. Son panneau
-          liste ce qu'il entend.
-        </p>
-      </div>
-
       <div v-if="mode !== 'functional'" class="block">
         <ul class="kinds">
           <li>
@@ -221,6 +178,42 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         <p class="caveat">
           Un lien topologique prouve que les deux relais s'entendent, mais le champ
           <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
+        </p>
+      </div>
+
+      <div v-if="listenOnlyCount > 0" class="block">
+        <p class="hashwarn">
+          <svg class="diamond" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+            <path d="M6 1 11 6 6 11 1 6Z" />
+          </svg>
+          <span>Observateur, écoute seule</span>
+          <span class="mono count">{{ listenOnlyCount }}</span>
+        </p>
+      </div>
+
+      <div class="block">
+        <p class="hashwarn">
+          <WarnIcon />
+          <span>Nœud à configurer</span>
+        </p>
+        <label class="only issue">
+          <input type="checkbox" :checked="issues.includes('hash1')" @change="emit('toggleIssue', 'hash1')" />
+          <span>Hash de chemin sur 1 octet</span>
+          <span class="mono count">{{ issueCounts.hash1 }}</span>
+        </label>
+        <p class="caveat">
+          256 valeurs seulement : les hashs se confondent et les sauts ne s'attribuent plus. Passer en
+          2 octets : <code>set path.hash.mode 1</code>.
+        </p>
+        <label class="only issue">
+          <input type="checkbox" :checked="issues.includes('noRegion')" @change="emit('toggleIssue', 'noRegion')" />
+          <span>Sans région par défaut</span>
+          <span class="mono count">{{ issueCounts.noRegion }}</span>
+        </label>
+        <p class="caveat">
+          Répéteurs et room servers dont les annonces partent sans région : les répéteurs réglés en
+          <code>region denyf *</code> les ignorent. Régler <code>region default &lt;nom&gt;</code> puis
+          <code>region save</code>.
         </p>
       </div>
     </div>
