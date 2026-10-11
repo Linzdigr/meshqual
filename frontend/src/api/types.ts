@@ -61,6 +61,8 @@ export interface NodeProperties {
   pathHashSize?: number
   /** Whether its flood adverts go out under a default region; absent until one is seen. */
   regionScope?: 'none' | 'set'
+  /** The default region's name, when relayd recognised it (see regionNames). */
+  regionName?: string
   /** An observer never seen relaying: drawn as a diamond, its links left off the map. */
   listenOnly?: boolean
 }
@@ -189,6 +191,8 @@ export interface NodeInfo {
   pathHashSize?: number
   /** Whether its flood adverts go out under a default region; absent until one is seen. */
   regionScope?: 'none' | 'set'
+  /** The default region's name, when relayd recognised it (see regionNames). */
+  regionName?: string
   listenOnly?: boolean
 }
 

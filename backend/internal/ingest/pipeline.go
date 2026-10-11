@@ -47,6 +47,7 @@ type NodeUpsert struct {
 	AdvertTimestamp *int64
 	PathHashSize    uint8
 	RegionScope     RegionScope
+	RegionName      string
 }
 
 // PipelineOptions configures the pipeline.
@@ -170,6 +171,7 @@ func (p *Pipeline) handle(obs source.Observation) {
 			Latitude: d.Advert.Latitude, Longitude: d.Advert.Longitude, AdvertTimestamp: &ts,
 			PathHashSize: AdvertHashSize(d.Packet),
 			RegionScope:  AdvertScope(d.Packet),
+			RegionName:   p.Resolver.Regions.Match(d.Packet),
 		}
 	}
 	full := len(p.sampleBuf) >= p.opt.FlushSize

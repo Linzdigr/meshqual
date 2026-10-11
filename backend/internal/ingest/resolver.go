@@ -24,6 +24,9 @@ type Node struct {
 	// RegionScope says whether the node floods its own packets under a default
 	// region, read from its flood adverts; ScopeUnknown until one is seen.
 	RegionScope RegionScope
+	// RegionName is the default region its scoped adverts carry, when one of
+	// the candidate names (Resolver.Regions) fits; "" when unscoped or unknown.
+	RegionName string
 	// LastHeard is the last time the node was heard: an advert from it, a path
 	// that unambiguously names it as a relay, or a packet it observed. The map
 	// hides nodes silent for too long (see api Deps.NodeMaxAge).
@@ -78,6 +81,8 @@ type Resolver struct {
 	// MaxHopKm bounds the length of a single radio hop. Zero disables the check.
 	// Set it before the resolver is shared.
 	MaxHopKm float64
+	// Regions names the region of scoped adverts. Set it before sharing.
+	Regions *meshcore.RegionBook
 
 	mu    sync.RWMutex
 	nodes map[string]*Node
@@ -131,8 +136,10 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	if n.PathHashSize != 0 && n.PathHashSize != cur.PathHashSize {
 		cur.PathHashSize, changed = n.PathHashSize, true
 	}
-	if n.RegionScope != ScopeUnknown && n.RegionScope != cur.RegionScope {
-		cur.RegionScope, changed = n.RegionScope, true
+	// A flood advert tells the scope, and the region when its name is known:
+	// both replace what an older advert said.
+	if n.RegionScope != ScopeUnknown && (n.RegionScope != cur.RegionScope || n.RegionName != cur.RegionName) {
+		cur.RegionScope, cur.RegionName, changed = n.RegionScope, n.RegionName, true
 	}
 	// Not a change to persist: the database keeps its own last_seen.
 	if n.LastHeard.After(cur.LastHeard) {

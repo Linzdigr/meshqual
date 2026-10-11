@@ -149,6 +149,12 @@ ages, and the link panel says how old it is.
 Nodes not heard for `nodeMaxAge` (default 48 h) leave the map. A node is heard
 when it adverts, relays in a path that names it unambiguously, or observes.
 
+A node's default region is read from its flood adverts. Scoped adverts only
+carry a 2-byte code keyed by the region name, so relayd names the region by
+trying candidates: `regionNames` (defaults: common French names such as `eu`,
+`fr`, `fr-bre`, `fr-35`, `bzh`, regions and departments), plus any listed in
+`MESHQUAL_REGION_NAMES` (comma-separated). Private (`$`) regions cannot be named.
+
 An observer (publishing to our brokers, or named "OBS" / "Observer") that no
 path has named as a relay for `relayWindow` (default 48 h) is listen-only: its
 repeat is off, so it is drawn as a diamond and its links stay off the map and

@@ -517,3 +517,43 @@ func TestAdvertRecordsRegionScope(t *testing.T) {
 		}
 	}
 }
+
+// A scoped advert names its region when the name is among the candidates:
+// the transport code is keyed by it (meshcore.RegionBook).
+func TestAdvertNamesItsRegion(t *testing.T) {
+	r := NewResolver()
+	r.Regions = meshcore.NewRegionBook([]string{"eu", "fr", "fr-bre", "fr-35", "bzh"})
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(0x60 + i)
+	}
+	var payload []byte
+	payload = append(payload, pub...)
+	payload = binary.LittleEndian.AppendUint32(payload, 1789825821)
+	payload = append(payload, make([]byte, 64)...)
+	payload = append(payload, meshcore.AdvTypeRepeater|0x80)
+	payload = append(payload, []byte("rpt")...)
+	key := hexUp(pub)
+
+	scoped := func(region string) []byte {
+		code := meshcore.TransportCode(meshcore.RegionKey(region), meshcore.PayloadAdvert, payload)
+		raw := []byte{hdr(meshcore.RouteTransportFlood, meshcore.PayloadAdvert), byte(code), byte(code >> 8), 0, 0, plen(0, 2)}
+		return append(raw, payload...)
+	}
+	for _, step := range []struct {
+		raw  []byte
+		want string
+	}{
+		{scoped("fr-bre"), "fr-bre"},
+		{scoped("$private"), ""}, // scoped, but not a name we can know
+		{scoped("bzh"), "bzh"},
+	} {
+		if _, err := Decode(source.Observation{Raw: step.raw, ReceivedAt: time.Now()}, r); err != nil {
+			t.Fatal(err)
+		}
+		n, _ := r.Get(key)
+		if n.RegionScope != ScopeSet || n.RegionName != step.want {
+			t.Errorf("scope %v, region %q; want set, %q", n.RegionScope, n.RegionName, step.want)
+		}
+	}
+}

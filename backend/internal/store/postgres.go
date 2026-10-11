@@ -111,8 +111,8 @@ func (p *Postgres) UpsertNodes(ctx context.Context, nodes []NodeRow) error {
 	batch := &pgx.Batch{}
 	for _, n := range nodes {
 		batch.Queue(`
-INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope, first_seen, last_seen)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now())
+INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope, region_name, first_seen, last_seen)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
 ON CONFLICT (public_key) DO UPDATE SET
   name             = CASE WHEN excluded.name <> '' THEN excluded.name ELSE nodes.name END,
   node_type        = CASE WHEN excluded.node_type <> 0 THEN excluded.node_type ELSE nodes.node_type END,
@@ -121,9 +121,11 @@ ON CONFLICT (public_key) DO UPDATE SET
   advert_timestamp = GREATEST(COALESCE(excluded.advert_timestamp, 0), COALESCE(nodes.advert_timestamp, 0)),
   path_hash_width  = COALESCE(excluded.path_hash_width, nodes.path_hash_width),
   region_scope     = COALESCE(excluded.region_scope, nodes.region_scope),
+  -- A flood advert (scope known) says the region, or that none is known.
+  region_name      = CASE WHEN excluded.region_scope IS NOT NULL THEN excluded.region_name ELSE nodes.region_name END,
   last_seen        = now()`,
 			key(n.Key), n.Name, int16(n.NodeType), n.Latitude, n.Longitude, n.AdvertTimestamp,
-			hashSize(n.PathHashSize), hashSize(n.RegionScope))
+			hashSize(n.PathHashSize), hashSize(n.RegionScope), nullable(n.RegionName))
 	}
 	return p.pool.SendBatch(ctx, batch).Close()
 }
@@ -143,6 +145,13 @@ WHERE public_key = $1`, key(k), t)
 	return p.pool.SendBatch(ctx, batch).Close()
 }
 
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // hashSize maps "unknown" (0) to NULL, so an upsert never erases a known value
 // (path hash width, region scope).
 func hashSize(v uint8) *int16 {
@@ -157,7 +166,7 @@ func hashSize(v uint8) *int16 {
 func (p *Postgres) LoadNodes(ctx context.Context) ([]NodeRow, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope,
-       last_relayed, first_seen, last_seen
+       COALESCE(region_name, ''), last_relayed, first_seen, last_seen
 FROM nodes`)
 	if err != nil {
 		return nil, err
@@ -174,7 +183,7 @@ FROM nodes`)
 			n        NodeRow
 		)
 		if err := rows.Scan(&pk, &n.Name, &nodeType, &n.Latitude, &n.Longitude,
-			&n.AdvertTimestamp, &hashSz, &scope, &n.LastRelayed, &n.FirstSeen, &n.LastSeen); err != nil {
+			&n.AdvertTimestamp, &hashSz, &scope, &n.RegionName, &n.LastRelayed, &n.FirstSeen, &n.LastSeen); err != nil {
 			return nil, err
 		}
 		n.Key, n.NodeType = hexUpper(pk), uint8(nodeType)

@@ -23,6 +23,7 @@ type NodeRow struct {
 	AdvertTimestamp *int64
 	PathHashSize    uint8 // 0: unknown
 	RegionScope     uint8 // ingest.RegionScope; 0: unknown
+	RegionName      string
 	LastRelayed     *time.Time
 	FirstSeen       time.Time
 	LastSeen        time.Time

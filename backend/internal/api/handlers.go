@@ -323,6 +323,9 @@ func nodeProps(n ingest.Node, listenOnly bool) map[string]any {
 	if s := n.RegionScope.String(); s != "" {
 		p["regionScope"] = s
 	}
+	if n.RegionName != "" {
+		p["regionName"] = n.RegionName
+	}
 	if listenOnly {
 		p["listenOnly"] = true
 	}

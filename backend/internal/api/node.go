@@ -41,6 +41,8 @@ type nodeInfo struct {
 	PathHashSize uint8 `json:"pathHashSize,omitempty"`
 	// RegionScope is "none" or "set", omitted until a flood advert revealed it.
 	RegionScope string `json:"regionScope,omitempty"`
+	// RegionName is the default region, when its name is known.
+	RegionName string `json:"regionName,omitempty"`
 	// ListenOnly: an observer never seen relaying (ingest.Node.ListenOnly).
 	ListenOnly bool `json:"listenOnly,omitempty"`
 }
@@ -160,6 +162,7 @@ func (s *Server) info(key string) nodeInfo {
 		Key: key, Name: n.Name, NodeType: meshcore.AdvTypeName(n.NodeType),
 		Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 		RegionScope: n.RegionScope.String(),
+		RegionName:  n.RegionName,
 		ListenOnly:  s.listenOnly(n),
 	}
 }

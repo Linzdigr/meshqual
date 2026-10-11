@@ -18,6 +18,7 @@ import (
 	"github.com/yvanferez/meshqual/backend/internal/hub"
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
 	"github.com/yvanferez/meshqual/backend/internal/los"
+	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 	"github.com/yvanferez/meshqual/backend/internal/store"
 )
@@ -73,6 +74,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 
 	resolver := ingest.NewResolver()
 	resolver.MaxHopKm = cfg.MaxHopKm
+	resolver.Regions = meshcore.NewRegionBook(cfg.RegionNames)
+	log.Info("region names", "candidates", resolver.Regions.Len())
 	aggregator := ingest.NewAggregator(cfg.FramesPerLink, cfg.SNRSamplesPerLink, cfg.LiveWindow.D())
 	aggregator.MeasureRetention = cfg.MeasureRetention.D()
 	aggregator.MinDirectionSamples = cfg.MinDirectionSamples
@@ -87,6 +90,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 				Key: n.Key, Name: n.Name, NodeType: n.NodeType,
 				Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 				RegionScope: ingest.RegionScope(n.RegionScope),
+				RegionName:  n.RegionName,
 				LastHeard:   n.LastSeen,
 			}
 			if n.LastRelayed != nil {

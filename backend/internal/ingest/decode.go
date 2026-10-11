@@ -56,6 +56,7 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 				Latitude: adv.Latitude, Longitude: adv.Longitude,
 				PathHashSize: AdvertHashSize(pkt),
 				RegionScope:  AdvertScope(pkt),
+				RegionName:   r.Regions.Match(pkt),
 				LastHeard:    obs.ReceivedAt,
 			})
 		}

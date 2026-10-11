@@ -126,18 +126,26 @@ function snr(v: number | null): string {
                 : 'aucune annonce relayée reçue'
           }}</span>
         </div>
-        <div v-if="node?.nodeType === 'repeater' || node?.nodeType === 'room'" class="tile">
+        <div class="tile">
           <span class="t-label">Région par défaut</span>
           <span class="t-value mono small">
-            <WarnIcon v-if="node?.regionScope === 'none'" />
-            {{ node?.regionScope === 'set' ? 'réglée' : node?.regionScope === 'none' ? 'aucune' : '—' }}
+            <WarnIcon v-if="node?.regionScope === 'none' && (node?.nodeType === 'repeater' || node?.nodeType === 'room')" />
+            {{
+              node?.regionScope === 'set'
+                ? node.regionName || 'inconnue'
+                : node?.regionScope === 'none'
+                  ? 'aucune'
+                  : '—'
+            }}
           </span>
           <span class="t-hint">{{
             node?.regionScope === 'none'
               ? 'annonces sans région : region default <nom> puis region save'
-              : node?.regionScope
-                ? 'ses annonces partent dans une région'
-                : 'aucune annonce relayée reçue'
+              : node?.regionScope === 'set' && !node.regionName
+                ? 'nom absent de regionNames, ou région privée'
+                : node?.regionScope === 'set'
+                  ? 'lue dans ses annonces'
+                  : 'aucune annonce relayée reçue'
           }}</span>
         </div>
         <div class="tile">

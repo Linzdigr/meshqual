@@ -36,6 +36,11 @@ type Config struct {
 	// NodeMaxAge hides from the map nodes not heard for this long. They stay
 	// known to the resolver, which still needs them to read paths. 0 disables.
 	NodeMaxAge Duration `json:"nodeMaxAge"`
+	// RegionNames are tried against scoped adverts to name a node's default
+	// region: the advert only carries a code keyed by the name, so a region
+	// is recognised only if its name is listed. Private ('$') regions never
+	// are. Defaults to DefaultRegionNames.
+	RegionNames []string `json:"regionNames"`
 	// RelayWindow: an observer not named in any path for this long counts as
 	// listen-only (its repeat is off). Its links leave the map.
 	RelayWindow Duration `json:"relayWindow"`
@@ -109,6 +114,7 @@ func Default() Config {
 		MeasureRetention:     Duration(14 * 24 * time.Hour),
 		NodeMaxAge:           Duration(48 * time.Hour),
 		RelayWindow:          Duration(48 * time.Hour),
+		RegionNames:          DefaultRegionNames(),
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,
 		MaxHopKm:             300,
@@ -156,6 +162,10 @@ func (c *Config) applyEnv() error {
 	}
 	if v := os.Getenv("MESHQUAL_REPLAY_FILE"); v != "" {
 		c.ReplayFile = v
+	}
+	// Added to the list rather than replacing it: local names on top of the defaults.
+	if v := os.Getenv("MESHQUAL_REGION_NAMES"); v != "" {
+		c.RegionNames = append(c.RegionNames, splitAndTrim(v)...)
 	}
 	if v := os.Getenv("MESHQUAL_CORS_ORIGINS"); v != "" {
 		c.CORSOrigins = splitAndTrim(v)
