@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
-import { DISCOVER_WINDOW_MS, MAX_TRACE_HOPS, useTraceStore, type CampaignItem } from '@/stores/trace'
+import { DISCOVER_WINDOW_MS, MAX_TRACE_HOPS, RETRY_GAP_MS, useTraceStore, type CampaignItem } from '@/stores/trace'
 import type { Gap } from '@/companion/planner'
 
 const emit = defineEmits<{ run: []; runCampaign: [] }>()
@@ -249,10 +249,22 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
           {{ MAX_TRACE_HOPS }} étapes au plus : le paquet ne peut pas en porter davantage.
         </p>
 
+        <label class="retry">
+          <input v-model="trace.retryUntilBack" type="checkbox" :disabled="trace.running" />
+          Relancer toutes les {{ RETRY_GAP_MS / 1000 }} s jusqu'au retour
+        </label>
         <div class="row">
-          <button type="button" class="btn primary" :disabled="!trace.canRun" @click="emit('run')">
-            {{ trace.running ? 'Trace en cours…' : 'Lancer la trace' }}
+          <button v-if="!trace.running" type="button" class="btn primary" :disabled="!trace.canRun" @click="emit('run')">
+            Lancer la trace
           </button>
+          <template v-else>
+            <span class="note mono">
+              {{ trace.retryUntilBack ? `Tentative ${trace.attempts}…` : 'Trace en cours…' }}
+            </span>
+            <button v-if="trace.retryUntilBack" type="button" class="btn" @click="trace.stopCampaign()">
+              Arrêter
+            </button>
+          </template>
           <button v-if="trace.path.length" type="button" class="btn" :disabled="trace.running" @click="trace.clearPath()">
             Effacer
           </button>
@@ -262,6 +274,9 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
           <p class="verdict">
             <strong>{{ trace.result.ok ? 'OK' : 'KO' }}</strong>
             {{ trace.result.ok ? ' - trace complète' : trace.result.reason }}
+            <span v-if="trace.retryUntilBack && trace.resultAttempt > 0" class="mono attempts">
+              ({{ trace.result.ok ? 'revenue à la tentative' : 'tentative' }} {{ trace.resultAttempt }})
+            </span>
           </p>
           <ul v-if="hops.length" class="hops">
             <li v-for="(h, i) in hops" :key="i">
@@ -466,6 +481,20 @@ p {
   font-size: 11px;
   line-height: 1.4;
   color: var(--status-warning);
+}
+
+.retry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.attempts {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .modes {

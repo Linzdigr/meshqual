@@ -51,6 +51,8 @@ const TRACE_MARGIN_MS = 4_000
 export const DISCOVER_WINDOW_MS = 20_000
 /** Quiet time between two automatic traces: the channel is shared. */
 const CAMPAIGN_GAP_MS = 6_000
+/** Manual retry: wait this long after a trace that did not come back. */
+export const RETRY_GAP_MS = 5_000
 
 interface Waiter {
   match: (f: Uint8Array) => boolean
@@ -75,6 +77,12 @@ export const useTraceStore = defineStore('trace', () => {
   const path = ref<string[]>([])
   const running = ref(false)
   const result = ref<TraceResult | null>(null)
+  /** Manual mode: send the path again until it comes back. */
+  const retryUntilBack = ref(false)
+  /** Attempts so far in the current manual run (1 without retry). */
+  const attempts = ref(0)
+  /** The attempt `result` comes from. */
+  const resultAttempt = ref(0)
 
   // Automatic mode.
   const discovering = ref(false)
@@ -250,13 +258,31 @@ export const useTraceStore = defineStore('trace', () => {
     }
   }
 
-  /** Sends the hand-picked path. */
+  /**
+   * Sends the hand-picked path. With retryUntilBack, sends it again
+   * RETRY_GAP_MS after each trace that does not come back, until one does or
+   * the user stops it.
+   */
   async function run(animate: (hops: TraceHop[]) => void) {
     if (!canRun.value) return
     running.value = true
     result.value = null
-    result.value = await traceOnce(path.value, animate)
-    running.value = false
+    attempts.value = 0
+    stopRequested = false
+    const keys = [...path.value]
+    try {
+      for (;;) {
+        attempts.value++
+        const r = await traceOnce(keys, animate)
+        result.value = r
+        resultAttempt.value = attempts.value
+        if (result.value.ok || !retryUntilBack.value || stopRequested || !connected.value) break
+        await pause(RETRY_GAP_MS)
+        if (stopRequested || !connected.value) break
+      }
+    } finally {
+      running.value = false
+    }
   }
 
   /**
@@ -331,7 +357,7 @@ export const useTraceStore = defineStore('trace', () => {
     }
   }
 
-  /** Stops after the trace in flight; also cuts a discovery's wait short. */
+  /** Stops after the trace in flight (campaign or manual retry); also cuts a wait short. */
   function stopCampaign() {
     stopRequested = true
     wake?.()
@@ -390,6 +416,9 @@ export const useTraceStore = defineStore('trace', () => {
     path,
     running,
     result,
+    retryUntilBack,
+    attempts,
+    resultAttempt,
     selecting,
     busy,
     canRun,
