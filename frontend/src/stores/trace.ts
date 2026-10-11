@@ -14,7 +14,7 @@ import {
   type DiscoveredRepeater,
   type SelfInfo,
 } from '@/companion/protocol'
-import { observerKeys, planTraces, type PlannedTrace } from '@/companion/planner'
+import { planTraces, type PlannedTrace } from '@/companion/planner'
 import {
   Cancelled,
   connect as openTransport,
@@ -316,14 +316,14 @@ export const useTraceStore = defineStore('trace', () => {
     }
   }
 
-  /** Observers never seen relaying: no automatic trace goes through them. */
-  const observers = computed(() => {
-    const mesh = useMeshStore()
-    return observerKeys(
-      mesh.nodes.features.map((f) => f.properties),
-      mesh.links.features.map((f) => f.properties),
-    )
-  })
+  /**
+   * Listen-only observers (the server's call: never seen relaying). Their
+   * links are not served, so no plan reaches them; this keeps them from
+   * being picked as a starting repeater too.
+   */
+  const observers = computed(
+    () => new Set(useMeshStore().nodes.features.filter((f) => f.properties.listenOnly).map((f) => f.properties.key)),
+  )
 
   /** The traces the automatic mode would run, from what the map knows now. */
   const proposal = computed<PlannedTrace[]>(() => {

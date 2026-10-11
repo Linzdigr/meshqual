@@ -98,6 +98,10 @@ func newFixture(t *testing.T) *fixture {
 		aggregator.Add(d)
 	}
 
+	// The fixture's observer also relays, like an uplinked repeater: its
+	// measured links are on the map (listen-only observers have their own test).
+	resolver.MarkRelay(f.obs, time.Now().UTC())
+
 	f.srv = New(Deps{
 		Resolver: resolver, Aggregator: aggregator, Pipeline: pipe, Store: st, Hub: events,
 		Sources: nil, Log: log, PushInterval: 2 * time.Second, LiveWindow: time.Hour,
@@ -309,38 +313,51 @@ func TestNodesGeoJSON(t *testing.T) {
 	}
 }
 
-// A node that publishes as an observer is flagged as one, on the node and on
-// its links; a node named in a path is flagged as relaying.
-func TestObserversAreFlagged(t *testing.T) {
+// An observer never seen relaying is listen-only: flagged on the map, its
+// links left out of it but kept in its own panel. Once a path names it as a
+// relay it is an ordinary node again.
+func TestListenOnlyObservers(t *testing.T) {
 	f := newFixture(t)
-	f.feed(t, floodFrame([]string{f.a}, 2), f.obs, ptrF(5), ptrI(-90))
-
-	_, body := f.get(t, "/api/nodes")
-	var fc FeatureCollection
-	if err := json.Unmarshal(body, &fc); err != nil {
+	obs := keyFor(0x55)
+	if _, err := ingest.Decode(source.Observation{
+		SourceID: "test", Raw: advertFrame(obs, 48.05, -1.9, "fr35-OBS-02", meshcore.AdvTypeRoom),
+		ReceivedAt: time.Now().UTC(),
+	}, f.resolver); err != nil {
 		t.Fatal(err)
 	}
-	for _, ft := range fc.Features {
-		got := ft.Properties["observer"] == true
-		if want := ft.Properties["key"] == f.obs; got != want {
-			t.Errorf("%v: observer = %v, want %v", ft.Properties["name"], got, want)
+	// It hears a packet relayed by f.a.
+	f.feed(t, floodFrame([]string{f.a}, 2), obs, ptrF(5), ptrI(-90))
+
+	listenOnly := func() map[string]bool {
+		_, body := f.get(t, "/api/nodes")
+		var fc FeatureCollection
+		if err := json.Unmarshal(body, &fc); err != nil {
+			t.Fatal(err)
 		}
+		out := map[string]bool{}
+		for _, ft := range fc.Features {
+			out[ft.Properties["key"].(string)] = ft.Properties["listenOnly"] == true
+		}
+		return out
 	}
-	_, body = f.get(t, "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85")
-	if !strings.Contains(string(body), `Observer":true`) {
-		t.Errorf("the observer's link does not flag it: %s", body)
+	if lo := listenOnly(); !lo[obs] || lo[f.a] || lo[f.obs] {
+		t.Fatalf("listenOnly = %v, want only the new observer", lo)
+	}
+	all := "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85"
+	if _, body := f.get(t, all); strings.Contains(string(body), obs) {
+		t.Errorf("a listen-only observer's link is on the map: %s", body)
+	}
+	if _, body := f.get(t, "/api/nodes/"+obs); !strings.Contains(string(body), f.a) {
+		t.Errorf("the observer's panel lost what it hears: %s", body)
 	}
 
-	// The node named in the path relayed; the observer did not.
-	_, body = f.get(t, "/api/nodes")
-	if err := json.Unmarshal(body, &fc); err != nil {
-		t.Fatal(err)
+	// Now a path names it as a relay.
+	f.feed(t, floodFrame([]string{obs, f.b}, 2), "", nil, nil)
+	if lo := listenOnly(); lo[obs] {
+		t.Error("an observer seen relaying is still listen-only")
 	}
-	for _, ft := range fc.Features {
-		got := ft.Properties["relays"] == true
-		if want := ft.Properties["key"] == f.a; got != want {
-			t.Errorf("%v: relays = %v, want %v", ft.Properties["name"], got, want)
-		}
+	if _, body := f.get(t, all); !strings.Contains(string(body), obs) {
+		t.Errorf("a relaying observer's links are missing: %s", body)
 	}
 }
 

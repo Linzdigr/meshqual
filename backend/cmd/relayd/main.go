@@ -83,12 +83,16 @@ func run(cfg config.Config, log *slog.Logger) error {
 		log.Warn("could not load nodes", "err", err)
 	} else if len(nodes) > 0 {
 		for _, n := range nodes {
-			resolver.Upsert(ingest.Node{
+			node := ingest.Node{
 				Key: n.Key, Name: n.Name, NodeType: n.NodeType,
 				Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 				RegionScope: ingest.RegionScope(n.RegionScope),
 				LastHeard:   n.LastSeen,
-			})
+			}
+			if n.LastRelayed != nil {
+				node.LastRelayed = *n.LastRelayed
+			}
+			resolver.Upsert(node)
 		}
 		log.Info("resolver warmed", "nodes", len(nodes))
 	}

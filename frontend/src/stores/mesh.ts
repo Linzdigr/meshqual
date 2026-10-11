@@ -135,6 +135,8 @@ export const useMeshStore = defineStore('mesh', () => {
   const functionalCount = computed(
     () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
   )
+  /** Listen-only observers in view (drawn as diamonds). */
+  const listenOnlyCount = computed(() => nodes.value.features.filter((f) => f.properties.listenOnly).length)
   /** Nodes in view per configuration issue (flagged ⚠ on the map). */
   const issueCounts = computed(() => {
     const c: Record<NodeIssue, number> = { hash1: 0, noRegion: 0 }
@@ -338,6 +340,7 @@ export const useMeshStore = defineStore('mesh', () => {
     asymmetricCount,
     functionalCount,
     issueCounts,
+    listenOnlyCount,
     issues,
     toggleIssue,
     loading,

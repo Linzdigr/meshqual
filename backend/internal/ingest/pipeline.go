@@ -16,6 +16,25 @@ import (
 type Sink interface {
 	WriteSamples(ctx context.Context, samples []Sample) error
 	UpsertNodes(ctx context.Context, nodes []NodeUpsert) error
+	// MarkRelayed records the latest time each node was seen relaying.
+	MarkRelayed(ctx context.Context, at map[string]time.Time) error
+}
+
+// relaysOf is which ends of a sample were path hops, so relayed the packet
+// (see Decode): both ends of a topology or trace sample, the non-observer end
+// of a measured one past zero hops. At zero hops that end is the originator.
+func relaysOf(s Sample) []string {
+	switch {
+	case s.Kind != KindMeasured:
+		return []string{s.AKey, s.BKey}
+	case s.HopCount == 0:
+		return nil
+	case s.AKey == s.ObserverKey:
+		return []string{s.BKey}
+	case s.BKey == s.ObserverKey:
+		return []string{s.AKey}
+	}
+	return nil
 }
 
 // NodeUpsert is a node fact learned from an advert.
@@ -196,10 +215,25 @@ func (p *Pipeline) flush(ctx context.Context) {
 	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	relayed := map[string]time.Time{}
+	for _, s := range samples {
+		for _, k := range relaysOf(s) {
+			if s.At.After(relayed[k]) {
+				relayed[k] = s.At
+			}
+		}
+	}
+
 	if len(nodes) > 0 {
 		if err := p.sink.UpsertNodes(writeCtx, nodes); err != nil {
 			p.writeErr.Add(1)
 			p.log.Warn("node upsert failed", "count", len(nodes), "err", err)
+		}
+	}
+	if len(relayed) > 0 {
+		if err := p.sink.MarkRelayed(writeCtx, relayed); err != nil {
+			p.writeErr.Add(1)
+			p.log.Warn("relay mark failed", "count", len(relayed), "err", err)
 		}
 	}
 	if len(samples) > 0 {
@@ -245,17 +279,12 @@ func (p *Pipeline) WarmFromSamples(samples []Sample) (dropped int) {
 			continue
 		}
 		// Both ends and the observer were heard when the sample was taken; the
-		// ends that were path hops relayed (see Decode): both ends of a
-		// topology or trace sample, the non-observer end of a measured one
-		// past zero hops (at zero hops it is the originator).
+		// ends that were path hops relayed.
 		s := samples[i]
-		for _, k := range []string{s.AKey, s.BKey} {
-			relayed := s.Kind != KindMeasured || (s.HopCount > 0 && k != s.ObserverKey)
-			if relayed {
-				p.Resolver.MarkRelay(k, s.At)
-			} else {
-				p.Resolver.Touch(k, s.At)
-			}
+		p.Resolver.Touch(s.AKey, s.At)
+		p.Resolver.Touch(s.BKey, s.At)
+		for _, k := range relaysOf(s) {
+			p.Resolver.MarkRelay(k, s.At)
 		}
 		p.Resolver.MarkObserver(s.ObserverKey, s.At)
 		p.Aggregator.Add(&Decoded{Samples: []Sample{samples[i]}})

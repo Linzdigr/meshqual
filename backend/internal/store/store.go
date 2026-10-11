@@ -23,6 +23,7 @@ type NodeRow struct {
 	AdvertTimestamp *int64
 	PathHashSize    uint8 // 0: unknown
 	RegionScope     uint8 // ingest.RegionScope; 0: unknown
+	LastRelayed     *time.Time
 	FirstSeen       time.Time
 	LastSeen        time.Time
 }
@@ -62,6 +63,7 @@ type Bucket struct {
 type Store interface {
 	Migrate(ctx context.Context) error
 	UpsertNodes(ctx context.Context, nodes []NodeRow) error
+	MarkRelayed(ctx context.Context, at map[string]time.Time) error
 	LoadNodes(ctx context.Context) ([]NodeRow, error)
 	WriteObservations(ctx context.Context, rows []ObservationRow) error
 	WriteSamples(ctx context.Context, samples []ingest.Sample) error
@@ -77,6 +79,7 @@ type Noop struct{}
 
 func (Noop) Migrate(context.Context) error                             { return nil }
 func (Noop) UpsertNodes(context.Context, []NodeRow) error              { return nil }
+func (Noop) MarkRelayed(context.Context, map[string]time.Time) error   { return nil }
 func (Noop) LoadNodes(context.Context) ([]NodeRow, error)              { return nil, nil }
 func (Noop) WriteObservations(context.Context, []ObservationRow) error { return nil }
 func (Noop) WriteSamples(context.Context, []ingest.Sample) error       { return nil }

@@ -2,6 +2,7 @@
 package ingest
 
 import (
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,18 @@ type Node struct {
 	// Observer: the node has published what it hears to one of our brokers.
 	// Set on the copies Get and Nodes return, from Resolver.observers.
 	Observer bool
+}
+
+// observerName catches observers feeding other brokers than ours: by
+// convention their names say so ("FR35CESS-OBS-01", "Lorient Observer").
+var observerName = regexp.MustCompile(`(?i)obs`)
+
+// ListenOnly reports an observer never seen relaying: it publishes what it
+// hears but does not forward, so its links carry no traffic. The map draws it
+// apart and leaves its links out. An observer named in a path is an uplinked
+// repeater, and an ordinary node.
+func (n *Node) ListenOnly() bool {
+	return (n.Observer || observerName.MatchString(n.Name)) && n.LastRelayed.IsZero()
 }
 
 // HasPosition reports whether this node can be drawn on a map.
@@ -119,6 +132,10 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	// Not a change to persist: the database keeps its own last_seen.
 	if n.LastHeard.After(cur.LastHeard) {
 		cur.LastHeard = n.LastHeard
+	}
+	// Persisted separately (Sink.MarkRelayed), not through Upsert.
+	if n.LastRelayed.After(cur.LastRelayed) {
+		cur.LastRelayed = n.LastRelayed
 	}
 	// A node that has reported a position keeps it until it reports another one:
 	// adverts without the lat/lon flag must not erase a known location.

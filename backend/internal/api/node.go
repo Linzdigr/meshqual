@@ -41,6 +41,8 @@ type nodeInfo struct {
 	PathHashSize uint8 `json:"pathHashSize,omitempty"`
 	// RegionScope is "none" or "set", omitted until a flood advert revealed it.
 	RegionScope string `json:"regionScope,omitempty"`
+	// ListenOnly: an observer never seen relaying (ingest.Node.ListenOnly).
+	ListenOnly bool `json:"listenOnly,omitempty"`
 }
 
 type neighbor struct {
@@ -71,8 +73,14 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	links := s.liveLinks()
-	an := s.analysis(links)
+	// The backbone is the relaying mesh: listen-only observers stay out of it.
+	an := s.analysis(s.mapLinks())
+	// A listen-only observer's panel lists what it hears; anyone else's, the
+	// links the map draws.
+	links := s.mapLinks()
+	if n.ListenOnly() {
+		links = s.liveLinks()
+	}
 
 	var last time.Time
 	neighbors := []neighbor{}
@@ -152,5 +160,6 @@ func (s *Server) info(key string) nodeInfo {
 		Key: key, Name: n.Name, NodeType: meshcore.AdvTypeName(n.NodeType),
 		Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 		RegionScope: n.RegionScope.String(),
+		ListenOnly:  n.ListenOnly(),
 	}
 }

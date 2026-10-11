@@ -43,6 +43,8 @@ function snrColor(snr: number | null): string {
 }
 
 const node = computed(() => props.detail?.node)
+/** An observer never seen relaying: its "neighbours" are what it hears, not links of the mesh. */
+const listenOnly = computed(() => node.value?.listenOnly === true)
 const name = computed(() => node.value?.name || props.nodeKey.slice(0, 8))
 const backbone = computed(() => props.detail?.backbone)
 const levelIndex = computed(() => LEVELS.findIndex((l) => l.id === backbone.value?.level))
@@ -83,9 +85,14 @@ function snr(v: number | null): string {
     <p v-if="!detail" class="loading">Chargement…</p>
 
     <template v-else>
+      <p v-if="listenOnly" class="listen">
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 1 11 6 6 11 1 6Z" /></svg>
+        Observateur en écoute seule : il publie ce qu'il entend mais n'a jamais été vu relayer. Ses liens ne
+        sont pas tracés sur la carte.
+      </p>
       <div class="tiles">
         <div class="tile">
-          <span class="t-label">Voisins</span>
+          <span class="t-label">{{ listenOnly ? 'Entendus' : 'Voisins' }}</span>
           <span class="t-value mono">{{ neighbors.length }}</span>
           <span class="t-hint">dont {{ measuredCount }} avec un SNR</span>
         </div>
@@ -160,7 +167,14 @@ function snr(v: number | null): string {
       </section>
 
       <section>
-        <h3>{{ neighbors.length }} voisins connus</h3>
+        <h3>
+          {{ neighbors.length }}
+          {{
+            listenOnly
+              ? neighbors.length > 1 ? 'nœuds entendus' : 'nœud entendu'
+              : neighbors.length > 1 ? 'voisins connus' : 'voisin connu'
+          }}
+        </h3>
         <p v-if="neighbors.length === 0" class="empty">Aucun lien actif pour ce nœud.</p>
         <table v-else class="neighbors">
           <thead>
@@ -177,10 +191,11 @@ function snr(v: number | null): string {
             <tr
               v-for="n in neighbors"
               :key="n.linkId"
-              tabindex="0"
-              :title="`Ouvrir le lien avec ${n.name || n.key.slice(0, 8)}`"
-              @click="emit('openLink', n.linkId)"
-              @keydown.enter="emit('openLink', n.linkId)"
+              :class="{ static: listenOnly }"
+              :tabindex="listenOnly ? undefined : 0"
+              :title="listenOnly ? undefined : `Ouvrir le lien avec ${n.name || n.key.slice(0, 8)}`"
+              @click="!listenOnly && emit('openLink', n.linkId)"
+              @keydown.enter="!listenOnly && emit('openLink', n.linkId)"
             >
               <td class="name">
                 {{ n.name || n.key.slice(0, 8) }}
@@ -203,6 +218,28 @@ function snr(v: number | null): string {
 </template>
 
 <style scoped>
+.listen {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.listen svg {
+  margin-right: 4px;
+  vertical-align: -1px;
+  fill: var(--surface-0);
+  stroke: var(--no-data);
+  stroke-width: 1.6;
+}
+
+tr.static {
+  cursor: default;
+}
+
 .panel {
   display: flex;
   flex-direction: column;

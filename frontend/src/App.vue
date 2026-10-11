@@ -343,6 +343,7 @@ watch(
           :functional-count="store.functionalCount"
           :retention-days="Math.round(store.measureRetentionSec / 86400)"
           :issue-counts="store.issueCounts"
+          :listen-only-count="store.listenOnlyCount"
           :issues="store.issues"
           @toggle-issue="store.toggleIssue"
           v-model:open="legendOpen"

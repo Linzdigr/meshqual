@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/yvanferez/meshqual/backend/internal/ingest"
 )
@@ -13,6 +14,11 @@ type Sink struct{ S Store }
 // WriteSamples persists link samples.
 func (a Sink) WriteSamples(ctx context.Context, samples []ingest.Sample) error {
 	return a.S.WriteSamples(ctx, samples)
+}
+
+// MarkRelayed persists when nodes were last seen relaying.
+func (a Sink) MarkRelayed(ctx context.Context, at map[string]time.Time) error {
+	return a.S.MarkRelayed(ctx, at)
 }
 
 // UpsertNodes persists node facts learned from adverts.

@@ -111,7 +111,7 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	links := s.liveLinks()
+	links := s.mapLinks()
 	fc := newCollection(len(links))
 	noPos := 0
 
@@ -158,21 +158,6 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			// orders of magnitude more than a leaf, and a linear width would
 			// make everything but the busiest pair invisible.
 			"weight": round2(math.Log10(float64(l.Samples) + 1)),
-		}
-		// Observers often do not relay: the UI keeps traces off those never
-		// seen relaying, even through a link whose far end is outside the
-		// nodes it loaded.
-		if na.Observer {
-			props["aObserver"] = true
-		}
-		if nb.Observer {
-			props["bObserver"] = true
-		}
-		if !na.LastRelayed.IsZero() {
-			props["aRelays"] = true
-		}
-		if !nb.LastRelayed.IsZero() {
-			props["bRelays"] = true
 		}
 		if l.SNR != nil {
 			props["snrMedian"] = l.SNR.Median
@@ -338,11 +323,8 @@ func nodeProps(n ingest.Node) map[string]any {
 	if s := n.RegionScope.String(); s != "" {
 		p["regionScope"] = s
 	}
-	if n.Observer {
-		p["observer"] = true
-	}
-	if !n.LastRelayed.IsZero() {
-		p["relays"] = true
+	if n.ListenOnly() {
+		p["listenOnly"] = true
 	}
 	return p
 }
@@ -351,6 +333,23 @@ func nodeProps(n ingest.Node) map[string]any {
 // still known for path resolution.
 func (s *Server) silent(n ingest.Node) bool {
 	return s.d.NodeMaxAge > 0 && time.Since(n.LastHeard) > s.d.NodeMaxAge
+}
+
+// mapLinks is liveLinks without those of listen-only observers: they relay
+// nothing, so their links say what they hear, not where traffic can go. The
+// observer's own panel still lists them (node.go).
+func (s *Server) mapLinks() []ingest.LinkView {
+	all := s.liveLinks()
+	out := all[:0]
+	for _, l := range all {
+		na, _ := s.d.Resolver.Get(l.AKey)
+		nb, _ := s.d.Resolver.Get(l.BKey)
+		if na.ListenOnly() || nb.ListenOnly() {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // liveLinks is every link the map shows: a link to a silent node goes with it.

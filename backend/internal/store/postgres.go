@@ -128,6 +128,21 @@ ON CONFLICT (public_key) DO UPDATE SET
 	return p.pool.SendBatch(ctx, batch).Close()
 }
 
+// MarkRelayed moves each node's last_relayed forward. A node whose advert was
+// never heard has no row yet; the resolver keeps the time until it has one.
+func (p *Postgres) MarkRelayed(ctx context.Context, at map[string]time.Time) error {
+	if len(at) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for k, t := range at {
+		batch.Queue(`
+UPDATE nodes SET last_relayed = GREATEST(COALESCE(last_relayed, $2), $2)
+WHERE public_key = $1`, key(k), t)
+	}
+	return p.pool.SendBatch(ctx, batch).Close()
+}
+
 // hashSize maps "unknown" (0) to NULL, so an upsert never erases a known value
 // (path hash width, region scope).
 func hashSize(v uint8) *int16 {
@@ -141,7 +156,8 @@ func hashSize(v uint8) *int16 {
 // LoadNodes reads every node, used to warm the resolver at startup.
 func (p *Postgres) LoadNodes(ctx context.Context) ([]NodeRow, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope, first_seen, last_seen
+SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope,
+       last_relayed, first_seen, last_seen
 FROM nodes`)
 	if err != nil {
 		return nil, err
@@ -158,7 +174,7 @@ FROM nodes`)
 			n        NodeRow
 		)
 		if err := rows.Scan(&pk, &n.Name, &nodeType, &n.Latitude, &n.Longitude,
-			&n.AdvertTimestamp, &hashSz, &scope, &n.FirstSeen, &n.LastSeen); err != nil {
+			&n.AdvertTimestamp, &hashSz, &scope, &n.LastRelayed, &n.FirstSeen, &n.LastSeen); err != nil {
 			return nil, err
 		}
 		n.Key, n.NodeType = hexUpper(pk), uint8(nodeType)

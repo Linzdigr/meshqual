@@ -18,6 +18,8 @@ const props = defineProps<{
   functionalCount: number
   /** Nodes in view per configuration issue, and the issues the ⚠ flags. */
   issueCounts: Record<NodeIssue, number>
+  /** Listen-only observers in view. */
+  listenOnlyCount: number
   issues: NodeIssue[]
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
@@ -186,6 +188,20 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
 
     <!-- Measured and trace links are coloured by SNR above; only topology links
            have a look of their own, so only they get a row (and a toggle). -->
+      <div v-if="listenOnlyCount > 0" class="block">
+        <p class="hashwarn">
+          <svg class="diamond" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+            <path d="M6 1 11 6 6 11 1 6Z" />
+          </svg>
+          <span>Observateur, écoute seule</span>
+          <span class="mono count">{{ listenOnlyCount }}</span>
+        </p>
+        <p class="caveat">
+          Publie ce qu'il entend mais n'a jamais été vu relayer : ses liens ne sont pas tracés. Son panneau
+          liste ce qu'il entend.
+        </p>
+      </div>
+
       <div v-if="mode !== 'functional'" class="block">
         <ul class="kinds">
           <li>
@@ -404,6 +420,13 @@ ul {
   margin: 0;
   font-size: 12px;
   color: var(--text-primary);
+}
+
+.hashwarn .diamond {
+  justify-self: center;
+  fill: var(--surface-0);
+  stroke: var(--no-data);
+  stroke-width: 1.6;
 }
 
 .hashwarn .warn {

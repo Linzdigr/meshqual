@@ -34,45 +34,8 @@ export interface PlanOptions {
   staleSec?: number
   /** The companion itself: discovery already measures its own links. */
   self?: string
-  /** Nodes no trace may go through (observers, which often do not relay). */
+  /** Nodes no trace may go through: listen-only observers, which relay nothing. */
   avoid?: ReadonlySet<string>
-}
-
-/**
- * Observers publish what they hear but often run without relaying, so a
- * trace through one dies there. Known from our brokers (the observer flags),
- * or by name for those feeding other brokers: "OBS" / "Observer" in it. One
- * seen relaying (named in a path) is a repeater with an uplink: it stays.
- */
-export function isObserverName(name: string | undefined): boolean {
-  return !!name && /obs/i.test(name)
-}
-
-export function observerKeys(
-  nodes: { key: string; name?: string; observer?: boolean; relays?: boolean }[],
-  links: {
-    aKey: string
-    bKey: string
-    aName?: string
-    bName?: string
-    aObserver?: boolean
-    bObserver?: boolean
-    aRelays?: boolean
-    bRelays?: boolean
-  }[],
-): Set<string> {
-  const observer = new Set<string>()
-  const relays = new Set<string>()
-  const see = (key: string, name?: string, obs?: boolean, rel?: boolean) => {
-    if (obs || isObserverName(name)) observer.add(key)
-    if (rel) relays.add(key)
-  }
-  for (const n of nodes) see(n.key, n.name, n.observer, n.relays)
-  for (const l of links) {
-    see(l.aKey, l.aName, l.aObserver, l.aRelays)
-    see(l.bKey, l.bName, l.bObserver, l.bRelays)
-  }
-  return new Set([...observer].filter((k) => !relays.has(k)))
 }
 
 /** How badly each kind of gap is missing: the weight of filling it. */
