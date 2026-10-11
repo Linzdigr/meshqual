@@ -27,6 +27,13 @@ type Node struct {
 	// that unambiguously names it as a relay, or a packet it observed. The map
 	// hides nodes silent for too long (see api Deps.NodeMaxAge).
 	LastHeard time.Time
+	// LastRelayed is the last time the node was named in a packet's path (or a
+	// trace's): it forwards packets. Observers often do not, which a trace
+	// routed through one finds out the hard way.
+	LastRelayed time.Time
+	// Observer: the node has published what it hears to one of our brokers.
+	// Set on the copies Get and Nodes return, from Resolver.observers.
+	Observer bool
 }
 
 // HasPosition reports whether this node can be drawn on a map.
@@ -59,13 +66,17 @@ type Resolver struct {
 	// byHash indexes every node under each hash width the format allows, so a
 	// lookup is O(1) regardless of the width the sender chose.
 	byHash map[meshcore.Hash][]string
+	// observers holds every key that has published as an observer, whether or
+	// not its advert has been heard yet.
+	observers map[string]struct{}
 }
 
 // NewResolver returns an empty resolver.
 func NewResolver() *Resolver {
 	return &Resolver{
-		nodes:  make(map[string]*Node),
-		byHash: make(map[meshcore.Hash][]string),
+		nodes:     make(map[string]*Node),
+		byHash:    make(map[meshcore.Hash][]string),
+		observers: make(map[string]struct{}),
 	}
 }
 
@@ -184,6 +195,38 @@ func (r *Resolver) Touch(key string, at time.Time) {
 	}
 }
 
+// MarkRelay records that key was named in a path at the given time: it
+// relayed that packet, so it was also heard.
+func (r *Resolver) MarkRelay(key string, at time.Time) {
+	if key == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n := r.nodes[strings.ToUpper(key)]; n != nil {
+		if at.After(n.LastHeard) {
+			n.LastHeard = at
+		}
+		if at.After(n.LastRelayed) {
+			n.LastRelayed = at
+		}
+	}
+}
+
+// MarkObserver records that key published what it hears, at the given time:
+// it is alive, and it is an observer. Observer firmware often runs without
+// relaying, which the UI needs to know before routing a trace through it.
+func (r *Resolver) MarkObserver(key string, at time.Time) {
+	if key == "" {
+		return
+	}
+	key = strings.ToUpper(key)
+	r.mu.Lock()
+	r.observers[key] = struct{}{}
+	r.mu.Unlock()
+	r.Touch(key, at)
+}
+
 // Get returns a copy of a node by key.
 func (r *Resolver) Get(key string) (Node, bool) {
 	r.mu.RLock()
@@ -192,7 +235,9 @@ func (r *Resolver) Get(key string) (Node, bool) {
 	if !ok {
 		return Node{}, false
 	}
-	return *n, true
+	cp := *n
+	_, cp.Observer = r.observers[cp.Key]
+	return cp, true
 }
 
 // Nodes returns every known node.
@@ -201,7 +246,9 @@ func (r *Resolver) Nodes() []Node {
 	defer r.mu.RUnlock()
 	out := make([]Node, 0, len(r.nodes))
 	for _, n := range r.nodes {
-		out = append(out, *n)
+		cp := *n
+		_, cp.Observer = r.observers[cp.Key]
+		out = append(out, cp)
 	}
 	return out
 }

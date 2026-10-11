@@ -20,6 +20,12 @@ export interface LinkProperties {
   lastForward: boolean
   /** SNR carried by the newest sample, when it had one. */
   lastSnr?: number
+  /** An end publishes to our brokers as an observer (they often do not relay). */
+  aObserver?: boolean
+  bObserver?: boolean
+  /** An end has been seen relaying (named in a path). */
+  aRelays?: boolean
+  bRelays?: boolean
   /** When the newest SNR value was taken. Signal values outlive the traffic
    * window (measureRetentionSec), so this can be days old. */
   lastMeasured?: string
@@ -61,6 +67,10 @@ export interface NodeProperties {
   pathHashSize?: number
   /** Whether its flood adverts go out under a default region; absent until one is seen. */
   regionScope?: 'none' | 'set'
+  /** It publishes what it hears to one of our brokers. */
+  observer?: boolean
+  /** It has been named in a packet's path: it forwards packets. */
+  relays?: boolean
 }
 
 export interface CollectionMeta {

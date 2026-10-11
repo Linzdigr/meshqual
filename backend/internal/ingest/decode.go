@@ -45,7 +45,7 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 
 	observer := strings.ToUpper(obs.ObserverKey)
 	// An observer publishing is itself alive.
-	r.Touch(observer, obs.ReceivedAt)
+	r.MarkObserver(observer, obs.ReceivedAt)
 
 	// An ADVERT is the only passive source of identity and position.
 	if pkt.PayloadType() == meshcore.PayloadAdvert {
@@ -78,8 +78,9 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		keys := make([]Resolution, len(tr.Hops))
 		for i, h := range tr.Hops {
 			keys[i] = r.Resolve(h.Hash)
+			// Every hop of a trace forwarded it.
 			if keys[i].Resolved() {
-				r.Touch(keys[i].Key, obs.ReceivedAt)
+				r.MarkRelay(keys[i].Key, obs.ReceivedAt)
 			}
 			d.HopsTotal++
 			switch {
@@ -116,7 +117,7 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		res[i] = r.Resolve(h)
 		// A relay named unambiguously in the path was heard relaying.
 		if res[i].Resolved() {
-			r.Touch(res[i].Key, obs.ReceivedAt)
+			r.MarkRelay(res[i].Key, obs.ReceivedAt)
 		}
 		d.HopsTotal++
 		switch {

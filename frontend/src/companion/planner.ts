@@ -34,6 +34,45 @@ export interface PlanOptions {
   staleSec?: number
   /** The companion itself: discovery already measures its own links. */
   self?: string
+  /** Nodes no trace may go through (observers, which often do not relay). */
+  avoid?: ReadonlySet<string>
+}
+
+/**
+ * Observers publish what they hear but often run without relaying, so a
+ * trace through one dies there. Known from our brokers (the observer flags),
+ * or by name for those feeding other brokers: "OBS" / "Observer" in it. One
+ * seen relaying (named in a path) is a repeater with an uplink: it stays.
+ */
+export function isObserverName(name: string | undefined): boolean {
+  return !!name && /obs/i.test(name)
+}
+
+export function observerKeys(
+  nodes: { key: string; name?: string; observer?: boolean; relays?: boolean }[],
+  links: {
+    aKey: string
+    bKey: string
+    aName?: string
+    bName?: string
+    aObserver?: boolean
+    bObserver?: boolean
+    aRelays?: boolean
+    bRelays?: boolean
+  }[],
+): Set<string> {
+  const observer = new Set<string>()
+  const relays = new Set<string>()
+  const see = (key: string, name?: string, obs?: boolean, rel?: boolean) => {
+    if (obs || isObserverName(name)) observer.add(key)
+    if (rel) relays.add(key)
+  }
+  for (const n of nodes) see(n.key, n.name, n.observer, n.relays)
+  for (const l of links) {
+    see(l.aKey, l.aName, l.aObserver, l.aRelays)
+    see(l.bKey, l.bName, l.bObserver, l.bRelays)
+  }
+  return new Set([...observer].filter((k) => !relays.has(k)))
 }
 
 /** How badly each kind of gap is missing: the weight of filling it. */
@@ -55,6 +94,8 @@ export function planTraces(reachable: string[], links: PlanLink[], opts: PlanOpt
   const maxTraces = opts.maxTraces ?? 12
   const staleSec = opts.staleSec ?? 2 * 86_400
   const self = opts.self
+  const avoid = opts.avoid ?? new Set<string>()
+  const usable = (k: string) => k !== self && !avoid.has(k)
 
   // Known links are pairs that hear each other: the trace can travel them.
   const adj = new Map<string, Set<string>>()
@@ -63,7 +104,7 @@ export function planTraces(reachable: string[], links: PlanLink[], opts: PlanOpt
     adj.get(x)!.add(y)
   }
   for (const l of links) {
-    if (l.aKey === self || l.bKey === self || l.aKey === l.bKey) continue
+    if (!usable(l.aKey) || !usable(l.bKey) || l.aKey === l.bKey) continue
     add(l.aKey, l.bKey)
     add(l.bKey, l.aKey)
   }
@@ -74,7 +115,7 @@ export function planTraces(reachable: string[], links: PlanLink[], opts: PlanOpt
   const parent = new Map<string, string | null>()
   const queue: string[] = []
   for (const r of [...new Set(reachable)].sort()) {
-    if (r === self) continue
+    if (!usable(r)) continue
     dist.set(r, 0)
     parent.set(r, null)
     queue.push(r)
@@ -100,7 +141,7 @@ export function planTraces(reachable: string[], links: PlanLink[], opts: PlanOpt
   const gaps = new Map<string, Gap>()
   const options: PlannedTrace[] = []
   for (const l of links) {
-    if (l.aKey === self || l.bKey === self || l.aKey === l.bKey) continue
+    if (!usable(l.aKey) || !usable(l.bKey) || l.aKey === l.bKey) continue
     const gap = gapOf(l, staleSec)
     const da = dist.get(l.aKey)
     const db = dist.get(l.bKey)

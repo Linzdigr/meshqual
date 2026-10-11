@@ -186,7 +186,9 @@ answer (MeshCore node discovery, which gives the companion ↔ repeater link bot
 ways), then plans round trips from them along known links to the links that
 lack measurements (never measured, one way only, few values, or older than two
 days), up to 1–3 hops further. It picks, one at a time, the trace filling the
-most gaps, and sends them one after the other with a pause between each.
+most gaps, and sends them one after the other with a pause between each. Observers never
+seen relaying are left out: those publishing to our brokers, or named "OBS" /
+"Observer", unless a path has named them as a relay.
 
 - Chrome or Edge (desktop or Android), over HTTPS or localhost: Safari and
   Firefox have neither Web Bluetooth nor Web Serial.

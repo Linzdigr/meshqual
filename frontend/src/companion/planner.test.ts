@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gapOf, planTraces, type PlanLink } from './planner'
+import { gapOf, isObserverName, observerKeys, planTraces, type PlanLink } from './planner'
 
 const DAY = 86_400
 const measured = (a: string, b: string, extra: Partial<PlanLink> = {}): PlanLink => ({
@@ -58,5 +58,33 @@ describe('planTraces', () => {
       ['R1', 'A', 'B', 'A', 'R1'], // fills R1–A and A–B together
       ['R2', 'B', 'R2'],
     ])
+  })
+})
+
+describe('observers', () => {
+  it('are kept out of every trace, as relay, target end or starting point', () => {
+    const links = [topo('R', 'OBS'), topo('OBS', 'X'), topo('R', 'Y'), topo('O2', 'Z')]
+    const plan = planTraces(['R', 'O2'], links, { self: 'C', avoid: new Set(['OBS', 'O2']) })
+    expect(plan.map((p) => p.path)).toEqual([['R', 'Y', 'R']])
+  })
+
+  it('are known from our brokers or by name, unless seen relaying', () => {
+    expect(isObserverName('FR35CESS-OBS-01')).toBe(true)
+    expect(isObserverName('CORAY_observer')).toBe(true)
+    expect(isObserverName('ensibsObsRoom')).toBe(true)
+    expect(isObserverName('FR35CESS_RPT_KIWI6')).toBe(false)
+    const keys = observerKeys(
+      [
+        { key: 'A', name: 'Relay', observer: true },
+        { key: 'B', name: 'Relay B' },
+        { key: 'F', name: 'Baze Repeater', observer: true, relays: true }, // uplinked repeater
+      ],
+      [
+        { aKey: 'B', bKey: 'C', bName: 'Lorient Observer 5' },
+        { aKey: 'D', bKey: 'E', aObserver: true },
+        { aKey: 'G', bKey: 'E', aName: 'FR35-OBS-02', aRelays: true },
+      ],
+    )
+    expect([...keys].sort()).toEqual(['A', 'C', 'D'])
   })
 })

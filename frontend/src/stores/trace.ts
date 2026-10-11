@@ -14,7 +14,7 @@ import {
   type DiscoveredRepeater,
   type SelfInfo,
 } from '@/companion/protocol'
-import { planTraces, type PlannedTrace } from '@/companion/planner'
+import { observerKeys, planTraces, type PlannedTrace } from '@/companion/planner'
 import {
   Cancelled,
   connect as openTransport,
@@ -290,6 +290,15 @@ export const useTraceStore = defineStore('trace', () => {
     }
   }
 
+  /** Observers never seen relaying: no automatic trace goes through them. */
+  const observers = computed(() => {
+    const mesh = useMeshStore()
+    return observerKeys(
+      mesh.nodes.features.map((f) => f.properties),
+      mesh.links.features.map((f) => f.properties),
+    )
+  })
+
   /** The traces the automatic mode would run, from what the map knows now. */
   const proposal = computed<PlannedTrace[]>(() => {
     if (!discovered.value.length) return []
@@ -297,7 +306,7 @@ export const useTraceStore = defineStore('trace', () => {
     return planTraces(
       discovered.value.map((r) => r.publicKey),
       mesh.links.features.map((f) => f.properties),
-      { self: companion.value?.publicKey, maxDepth: depth.value },
+      { self: companion.value?.publicKey, maxDepth: depth.value, avoid: observers.value },
     )
   })
 
@@ -397,6 +406,7 @@ export const useTraceStore = defineStore('trace', () => {
     discoveredAt,
     depth,
     proposal,
+    observers,
     campaign,
     campaignRunning,
     discover,

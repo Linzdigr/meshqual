@@ -309,6 +309,41 @@ func TestNodesGeoJSON(t *testing.T) {
 	}
 }
 
+// A node that publishes as an observer is flagged as one, on the node and on
+// its links; a node named in a path is flagged as relaying.
+func TestObserversAreFlagged(t *testing.T) {
+	f := newFixture(t)
+	f.feed(t, floodFrame([]string{f.a}, 2), f.obs, ptrF(5), ptrI(-90))
+
+	_, body := f.get(t, "/api/nodes")
+	var fc FeatureCollection
+	if err := json.Unmarshal(body, &fc); err != nil {
+		t.Fatal(err)
+	}
+	for _, ft := range fc.Features {
+		got := ft.Properties["observer"] == true
+		if want := ft.Properties["key"] == f.obs; got != want {
+			t.Errorf("%v: observer = %v, want %v", ft.Properties["name"], got, want)
+		}
+	}
+	_, body = f.get(t, "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85")
+	if !strings.Contains(string(body), `Observer":true`) {
+		t.Errorf("the observer's link does not flag it: %s", body)
+	}
+
+	// The node named in the path relayed; the observer did not.
+	_, body = f.get(t, "/api/nodes")
+	if err := json.Unmarshal(body, &fc); err != nil {
+		t.Fatal(err)
+	}
+	for _, ft := range fc.Features {
+		got := ft.Properties["relays"] == true
+		if want := ft.Properties["key"] == f.a; got != want {
+			t.Errorf("%v: relays = %v, want %v", ft.Properties["name"], got, want)
+		}
+	}
+}
+
 func TestHealthAndConfig(t *testing.T) {
 	f := newFixture(t)
 	res, body := f.get(t, "/api/health")

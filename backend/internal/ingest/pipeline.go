@@ -244,10 +244,20 @@ func (p *Pipeline) WarmFromSamples(samples []Sample) (dropped int) {
 			dropped++
 			continue
 		}
-		// Both ends and the observer were heard when the sample was taken.
-		for _, k := range []string{samples[i].AKey, samples[i].BKey, samples[i].ObserverKey} {
-			p.Resolver.Touch(k, samples[i].At)
+		// Both ends and the observer were heard when the sample was taken; the
+		// ends that were path hops relayed (see Decode): both ends of a
+		// topology or trace sample, the non-observer end of a measured one
+		// past zero hops (at zero hops it is the originator).
+		s := samples[i]
+		for _, k := range []string{s.AKey, s.BKey} {
+			relayed := s.Kind != KindMeasured || (s.HopCount > 0 && k != s.ObserverKey)
+			if relayed {
+				p.Resolver.MarkRelay(k, s.At)
+			} else {
+				p.Resolver.Touch(k, s.At)
+			}
 		}
+		p.Resolver.MarkObserver(s.ObserverKey, s.At)
 		p.Aggregator.Add(&Decoded{Samples: []Sample{samples[i]}})
 	}
 	p.Aggregator.TakeDirty() // a warm-up is not a change to push

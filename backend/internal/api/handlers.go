@@ -159,6 +159,21 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			// make everything but the busiest pair invisible.
 			"weight": round2(math.Log10(float64(l.Samples) + 1)),
 		}
+		// Observers often do not relay: the UI keeps traces off those never
+		// seen relaying, even through a link whose far end is outside the
+		// nodes it loaded.
+		if na.Observer {
+			props["aObserver"] = true
+		}
+		if nb.Observer {
+			props["bObserver"] = true
+		}
+		if !na.LastRelayed.IsZero() {
+			props["aRelays"] = true
+		}
+		if !nb.LastRelayed.IsZero() {
+			props["bRelays"] = true
+		}
 		if l.SNR != nil {
 			props["snrMedian"] = l.SNR.Median
 			props["snrP10"] = l.SNR.P10
@@ -322,6 +337,12 @@ func nodeProps(n ingest.Node) map[string]any {
 	}
 	if s := n.RegionScope.String(); s != "" {
 		p["regionScope"] = s
+	}
+	if n.Observer {
+		p["observer"] = true
+	}
+	if !n.LastRelayed.IsZero() {
+		p["relays"] = true
 	}
 	return p
 }

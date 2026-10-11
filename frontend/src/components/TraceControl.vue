@@ -45,6 +45,11 @@ const tally = computed(() => ({
 }))
 const statusMark: Record<string, string> = { pending: '·', running: '…', ok: '✓', ko: '✕' }
 
+/** Observers picked by hand: allowed, but likely to stop the trace. */
+const pickedObservers = computed(() => [
+  ...new Set(trace.path.filter((k) => trace.observers.has(k)).map(nameOf)),
+])
+
 /** The path does not come back to where it started: the companion may not hear its end. */
 const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace.path.at(-1))
 </script>
@@ -148,7 +153,10 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
             </div>
             <ul v-if="trace.discovered.length" class="hops">
               <li v-for="r in trace.discovered" :key="r.publicKey">
-                <span class="name">{{ nameOf(r.publicKey) }}</span>
+                <span class="name">
+                  {{ nameOf(r.publicKey) }}
+                  <small v-if="trace.observers.has(r.publicKey)" class="muted">observateur jamais vu relayer, non utilisé</small>
+                </span>
                 <span class="mono" title="SNR reçu par le relais / reçu par le compagnon">
                   ↑ {{ fmtDb(r.snrAtRepeater) }} · ↓ {{ fmtDb(r.snrAtCompanion) }}
                 </span>
@@ -232,6 +240,10 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
         <p v-if="endsAway" class="warn">
           La trace se termine sur {{ nameOf(trace.path.at(-1)!) }} : le compagnon doit l'entendre pour
           recevoir le résultat.
+        </p>
+        <p v-if="pickedObservers.length" class="warn">
+          {{ pickedObservers.join(', ') }} : observateur{{ pickedObservers.length > 1 ? 's' : '' }} jamais
+          vu{{ pickedObservers.length > 1 ? 's' : '' }} relayer. La trace risque de s'y arrêter.
         </p>
         <p v-if="trace.path.length >= MAX_TRACE_HOPS" class="warn">
           {{ MAX_TRACE_HOPS }} étapes au plus : le paquet ne peut pas en porter davantage.
@@ -518,6 +530,12 @@ h4 {
   gap: 6px;
   align-items: flex-start;
   font-size: 11.5px;
+}
+
+.hops .name small.muted {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .plan .name small {
