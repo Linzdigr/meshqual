@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
-import { MAX_TRACE_HOPS, useTraceStore } from '@/stores/trace'
+import { DISCOVER_WINDOW_MS, MAX_TRACE_HOPS, useTraceStore, type CampaignItem } from '@/stores/trace'
+import type { Gap } from '@/companion/planner'
 
-const emit = defineEmits<{ run: [] }>()
+const emit = defineEmits<{ run: []; runCampaign: [] }>()
 
 const trace = useTraceStore()
 const mesh = useMeshStore()
@@ -13,12 +14,36 @@ const anySupport = trace.available.ble || trace.available.serial
 function nameOf(key: string): string {
   if (key === trace.companion?.publicKey) return trace.companion.name || 'compagnon'
   const n = mesh.nodes.features.find((f) => f.properties.key === key)
-  return n?.properties.name || key.slice(0, 8)
+  if (n?.properties.name) return n.properties.name
+  // Nodes just outside the view are not loaded, but their links name them.
+  for (const f of mesh.links.features) {
+    const l = f.properties
+    if (l.aKey === key && l.aName) return l.aName
+    if (l.bKey === key && l.bName) return l.bName
+  }
+  return key.slice(0, 8)
 }
 
 const fmtDb = (v: number) => `${v.toFixed(2).replace('.', ',').replace(/,?0+$/, '')} dB`
 
 const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
+
+const gapLabel: Record<Gap, string> = {
+  unmeasured: 'jamais mesuré',
+  oneWay: 'un seul sens',
+  few: 'peu de mesures',
+  stale: 'mesure ancienne',
+}
+
+/** The automatic traces to show: the campaign once started, else the proposal. */
+const autoList = computed<CampaignItem[]>(() =>
+  trace.campaign.length ? trace.campaign : trace.proposal.map((p) => ({ ...p, status: 'pending' })),
+)
+const tally = computed(() => ({
+  ok: trace.campaign.filter((c) => c.status === 'ok').length,
+  ko: trace.campaign.filter((c) => c.status === 'ko').length,
+}))
+const statusMark: Record<string, string> = { pending: '·', running: '…', ok: '✓', ko: '✕' }
 
 /** The path does not come back to where it started: the companion may not hear its end. */
 const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace.path.at(-1))
@@ -89,6 +114,96 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
           {{ trace.companion?.name || 'Compagnon' }}
           <button type="button" class="link" @click="trace.disconnect()">Déconnecter</button>
         </p>
+        <div class="modes" role="radiogroup" aria-label="Mode">
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="trace.mode === 'manual'"
+            :class="{ on: trace.mode === 'manual' }"
+            :disabled="trace.busy"
+            @click="trace.mode = 'manual'"
+          >
+            Manuel
+          </button>
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="trace.mode === 'auto'"
+            :class="{ on: trace.mode === 'auto' }"
+            :disabled="trace.busy"
+            @click="trace.mode = 'auto'"
+          >
+            Automatique
+          </button>
+        </div>
+
+        <template v-if="trace.mode === 'auto'">
+          <section class="step">
+            <h4>1. Relais à portée</h4>
+            <div class="row">
+              <button type="button" class="btn" :disabled="trace.busy" @click="trace.discover()">
+                {{ trace.discovering ? 'Écoute des réponses…' : trace.discoveredAt ? 'Relancer la détection' : 'Détecter' }}
+              </button>
+              <span v-if="trace.discovering" class="note">{{ DISCOVER_WINDOW_MS / 1000 }} s</span>
+            </div>
+            <ul v-if="trace.discovered.length" class="hops">
+              <li v-for="r in trace.discovered" :key="r.publicKey">
+                <span class="name">{{ nameOf(r.publicKey) }}</span>
+                <span class="mono" title="SNR reçu par le relais / reçu par le compagnon">
+                  ↑ {{ fmtDb(r.snrAtRepeater) }} · ↓ {{ fmtDb(r.snrAtCompanion) }}
+                </span>
+              </li>
+            </ul>
+            <p v-else-if="trace.discoveredAt && !trace.discovering" class="warn">
+              Aucun relais n'a répondu. Chacun répond au plus 4 fois par 2 minutes : réessayez un peu plus tard.
+            </p>
+          </section>
+
+          <section v-if="trace.discovered.length" class="step">
+            <h4>2. Traces proposées</h4>
+            <label class="depth">
+              Jusqu'à
+              <select v-model.number="trace.depth" :disabled="trace.busy">
+                <option :value="1">1 saut</option>
+                <option :value="2">2 sauts</option>
+                <option :value="3">3 sauts</option>
+              </select>
+              au-delà des relais à portée
+            </label>
+            <ol v-if="autoList.length" class="plan">
+              <li v-for="(c, i) in autoList" :key="i" :class="c.status">
+                <span class="mark mono" aria-hidden="true">{{ statusMark[c.status] }}</span>
+                <span class="name">
+                  {{ nameOf(c.target.a) }} → {{ nameOf(c.target.b) }}
+                  <small>{{ gapLabel[c.target.gap] }} · {{ c.path.length + 1 }} sauts</small>
+                  <small v-if="c.result && !c.result.ok" class="ko">{{ c.result.reason }}</small>
+                </span>
+              </li>
+            </ol>
+            <p v-else class="note">Rien à compléter autour de ces relais d'après la carte.</p>
+            <div class="row">
+              <button
+                v-if="!trace.campaignRunning"
+                type="button"
+                class="btn primary"
+                :disabled="trace.busy || !trace.proposal.length"
+                @click="emit('runCampaign')"
+              >
+                Lancer {{ trace.proposal.length }} trace{{ trace.proposal.length > 1 ? 's' : '' }}
+              </button>
+              <button v-else type="button" class="btn" @click="trace.stopCampaign()">Arrêter</button>
+              <span v-if="trace.campaign.length" class="mono tally">
+                <span class="ok">{{ tally.ok }} OK</span> · <span class="ko">{{ tally.ko }} KO</span>
+              </span>
+            </div>
+            <p class="note">
+              Les traces partent une à une, espacées de quelques secondes. Leurs mesures n'arrivent sur la
+              carte que si un observateur les entend passer.
+            </p>
+          </section>
+        </template>
+
+        <template v-else>
         <p class="note">
           Cliquez les nœuds dans l'ordre de l'aller puis du retour, en partant d'un voisin du compagnon.
           Un nœud peut revenir au retour ; recliquer le dernier l'annule.
@@ -143,6 +258,7 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
             </li>
           </ul>
         </div>
+        </template>
       </template>
     </section>
   </div>
@@ -338,6 +454,105 @@ p {
   font-size: 11px;
   line-height: 1.4;
   color: var(--status-warning);
+}
+
+.modes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 5px;
+}
+
+.modes button {
+  flex: 1;
+  padding: 4px 6px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modes button.on {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.depth {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.depth select {
+  margin: 0 2px;
+  font-size: 11px;
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan li {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 11.5px;
+}
+
+.plan .name small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.plan .name {
+  white-space: normal;
+}
+
+.plan .mark {
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.plan li.running .mark {
+  color: var(--accent);
+}
+
+.plan li.ok .mark,
+.tally .ok {
+  color: var(--status-good);
+}
+
+.plan li.ko .mark,
+.plan .name small.ko,
+.tally .ko {
+  color: var(--status-critical);
+}
+
+.tally {
+  font-size: 11px;
 }
 
 .result {

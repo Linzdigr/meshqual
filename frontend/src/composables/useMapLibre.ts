@@ -1389,18 +1389,24 @@ export function useMapLibre(opts: UseMapOptions) {
   }
 
   /**
-   * Focuses the map on a trace: the nodes it visits, in order, and the links
-   * between consecutive ones keep full strength; everything else fades as for
-   * a selected link. null lifts it.
+   * Focuses the map on traces: the nodes each route visits, in order, and the
+   * links between consecutive ones keep full strength; everything else fades
+   * as for a selected link. null lifts it.
    */
-  function setTraceFocus(visits: string[] | null) {
-    traceFocus = visits
+  function setTraceFocus(routes: string[][] | null) {
+    traceFocus = routes
       ? {
-          nodes: [...new Set(visits)],
-          links: visits.slice(1).map((to, i) => {
-            const from = visits[i]!
-            return from <= to ? `${from}:${to}` : `${to}:${from}`
-          }),
+          nodes: [...new Set(routes.flat())],
+          links: [
+            ...new Set(
+              routes.flatMap((r) =>
+                r.slice(1).map((to, i) => {
+                  const from = r[i]!
+                  return from <= to ? `${from}:${to}` : `${to}:${from}`
+                }),
+              ),
+            ),
+          ],
         }
       : null
     applyFocus()

@@ -144,8 +144,8 @@ defineExpose({
   focusPoints: (points: [number, number][], padding: Padding) => map.focusPoints(points, padding),
   /** Puts a point a fraction of the way along a link, or clears it with null. */
   markOnLink: (linkId: string | null, fraction: number | null) => map.markOnLink(linkId, fraction),
-  /** Fades all but the nodes a trace visits (in order) and the links between them; null lifts it. */
-  setTraceFocus: (visits: string[] | null) => map.setTraceFocus(visits),
+  /** Fades all but the nodes traces visit (each route in order) and the links between them; null lifts it. */
+  setTraceFocus: (routes: string[][] | null) => map.setTraceFocus(routes),
   /** Labels the links of a returned trace with its SNR readings; [] clears them. */
   setTraceLabels: (hops: { from: string; to: string; snr?: number }[]) => map.setTraceLabels(hops),
   /** Plays trace legs with the live-packet animation. */

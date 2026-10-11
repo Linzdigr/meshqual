@@ -7,10 +7,18 @@
 
 export const CMD_APP_START = 0x01
 export const CMD_SEND_TRACE_PATH = 36
+export const CMD_SEND_CONTROL_DATA = 55
+export const RESP_OK = 0x00
 export const RESP_ERR = 0x01
 export const RESP_SELF_INFO = 0x05
 export const RESP_SENT = 0x06
 export const PUSH_TRACE_DATA = 0x89
+export const PUSH_CONTROL_DATA = 0x8e
+
+/** Control payload types (simple_repeater MyMesh.cpp): upper nibble. */
+const CTL_NODE_DISCOVER_REQ = 0x80
+const CTL_NODE_DISCOVER_RESP = 0x90
+const ADV_TYPE_REPEATER = 2
 
 /** Path hash width used for traces. 2 bytes keeps collisions rare; firmware v1.11+. */
 export const TRACE_HASH_BYTES = 2
@@ -74,6 +82,50 @@ export function encodeTrace(tag: number, keys: string[], hashBytes = TRACE_HASH_
   out[9] = Math.log2(hashBytes) & 0x03 // flags: path hash size as a power of two
   keys.forEach((k, i) => out.set(pathHash(k, hashBytes), 10 + i * hashBytes))
   return out
+}
+
+/**
+ * A zero-hop "who is there" to the repeaters in direct range. Each one that
+ * hears it answers (at most 4 times per 2 minutes) with its key and the SNR it
+ * heard the request at; the companion adds the SNR it hears the answer at.
+ * Full keys are asked for (prefix_only = 0).
+ */
+export function encodeDiscover(tag: number): Uint8Array {
+  const out = new Uint8Array(11)
+  const view = new DataView(out.buffer)
+  out[0] = CMD_SEND_CONTROL_DATA
+  out[1] = CTL_NODE_DISCOVER_REQ
+  out[2] = 1 << ADV_TYPE_REPEATER // filter: repeaters
+  view.setUint32(3, tag >>> 0, true)
+  view.setUint32(7, 0, true) // since: any
+  return out
+}
+
+export interface DiscoveredRepeater {
+  tag: number
+  publicKey: string
+  /** SNR the repeater measured hearing the companion's request, in dB. */
+  snrAtRepeater: number
+  /** SNR the companion measured hearing the repeater's answer, in dB. */
+  snrAtCompanion: number
+  rssiAtCompanion: number
+}
+
+/** A repeater's answer to encodeDiscover, pushed as CONTROL_DATA. */
+export function parseDiscoverResponse(f: Uint8Array): DiscoveredRepeater | null {
+  // 0x8E, snr x4, rssi, path_len, then the control payload:
+  // 0x90|type, snr x4, tag (4), public key (32).
+  if (f[0] !== PUSH_CONTROL_DATA || f.length < 4 + 6 + 32) return null
+  const p = f.subarray(4)
+  if ((p[0]! & 0xf0) !== CTL_NODE_DISCOVER_RESP || (p[0]! & 0x0f) !== ADV_TYPE_REPEATER) return null
+  const view = new DataView(f.buffer, f.byteOffset, f.byteLength)
+  return {
+    tag: view.getUint32(4 + 2, true),
+    publicKey: hex(p.subarray(6, 38)),
+    snrAtRepeater: view.getInt8(4 + 1) / 4,
+    snrAtCompanion: view.getInt8(1) / 4,
+    rssiAtCompanion: view.getInt8(2),
+  }
 }
 
 export function parseSelfInfo(f: Uint8Array): SelfInfo | null {

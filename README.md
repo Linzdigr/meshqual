@@ -181,6 +181,13 @@ nodes builds a path in order, starting from a neighbour of the companion, and
 play the live-packet animation, and the panel shows OK with the SNR of each hop,
 or KO when nothing came back.
 
+**Automatique** does it on its own: it asks the repeaters in direct range to
+answer (MeshCore node discovery, which gives the companion ↔ repeater link both
+ways), then plans round trips from them along known links to the links that
+lack measurements (never measured, one way only, few values, or older than two
+days), up to 1–3 hops further. It picks, one at a time, the trace filling the
+most gaps, and sends them one after the other with a pause between each.
+
 - Chrome or Edge (desktop or Android), over HTTPS or localhost: Safari and
   Firefox have neither Web Bluetooth nor Web Serial.
 - Paths use 2-byte hashes, which repeaters read from firmware v1.11.

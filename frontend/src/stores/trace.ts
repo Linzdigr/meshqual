@@ -2,14 +2,19 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import {
   encodeAppStart,
+  encodeDiscover,
   encodeTrace,
+  parseDiscoverResponse,
   parseSelfInfo,
   parseSent,
   parseTraceData,
   RESP_ERR,
+  RESP_OK,
   roundTrip,
+  type DiscoveredRepeater,
   type SelfInfo,
 } from '@/companion/protocol'
+import { planTraces, type PlannedTrace } from '@/companion/planner'
 import {
   Cancelled,
   connect as openTransport,
@@ -17,6 +22,7 @@ import {
   type Transport,
   type TransportKind,
 } from '@/companion/transport'
+import { useMeshStore } from '@/stores/mesh'
 
 /** One radio hop of a trace, in the direction the trace travelled. */
 export interface TraceHop {
@@ -30,11 +36,21 @@ export type TraceResult =
   | { ok: true; hops: TraceHop[]; at: number }
   | { ok: false; reason: string; at: number }
 
+/** A trace of the automatic mode, with how it went. */
+export interface CampaignItem extends PlannedTrace {
+  status: 'pending' | 'running' | 'ok' | 'ko'
+  result?: TraceResult
+}
+
 const REPLY_TIMEOUT_MS = 5_000
 /** A trace path holds at most 64 bytes of hashes: 32 hops at 2 bytes. */
 export const MAX_TRACE_HOPS = 32
 /** Slack on top of the firmware's own round-trip estimate. */
 const TRACE_MARGIN_MS = 4_000
+/** Repeaters answer a discovery after a random delay (a few seconds, widened x4). */
+export const DISCOVER_WINDOW_MS = 20_000
+/** Quiet time between two automatic traces: the channel is shared. */
+const CAMPAIGN_GAP_MS = 6_000
 
 interface Waiter {
   match: (f: Uint8Array) => boolean
@@ -42,9 +58,10 @@ interface Waiter {
 }
 
 /**
- * A companion radio driven from the browser to send TRACE packets along a path
- * picked on the map. The trace goes out and back the same way, so it returns
- * the SNR of both directions of every link on the path.
+ * A companion radio driven from the browser to send TRACE packets. By hand,
+ * along a path picked on the map; or automatically: discover the repeaters in
+ * direct range, plan round trips that fill the missing measurements around
+ * them (companion/planner), and run them one after the other.
  */
 export const useTraceStore = defineStore('trace', () => {
   const available = supported()
@@ -53,19 +70,37 @@ export const useTraceStore = defineStore('trace', () => {
   const connectError = ref<string | null>(null)
   /** The trace panel is open: clicks on nodes build the path instead of opening them. */
   const open = ref(false)
+  /** Manual: the user picks a path. Auto: discover, plan and run traces. */
+  const mode = ref<'manual' | 'auto'>('manual')
   const path = ref<string[]>([])
   const running = ref(false)
   const result = ref<TraceResult | null>(null)
 
+  // Automatic mode.
+  const discovering = ref(false)
+  const discovered = ref<DiscoveredRepeater[]>([])
+  const discoveredAt = ref<number | null>(null)
+  /** Hops from a discovered repeater to the near end of a target link. */
+  const depth = ref(2)
+  const campaign = ref<CampaignItem[]>([])
+  const campaignRunning = ref(false)
+  let stopRequested = false
+  let wake: (() => void) | null = null
+
   const transport = shallowRef<Transport | null>(null)
   let waiters: Waiter[] = []
+  /** Frame listeners that see every frame, for answers that come in numbers. */
+  const listeners = new Set<(f: Uint8Array) => void>()
 
-  const selecting = computed(() => open.value && status.value === 'connected')
-  const canRun = computed(() => selecting.value && path.value.length > 0 && !running.value)
+  const connected = computed(() => status.value === 'connected')
+  const selecting = computed(() => open.value && connected.value && mode.value === 'manual')
+  const busy = computed(() => running.value || discovering.value || campaignRunning.value)
+  const canRun = computed(() => selecting.value && path.value.length > 0 && !busy.value)
   /** The path reads the same both ways: its return already retraces the outbound. */
   const isRoundTrip = computed(() => path.value.join() === [...path.value].reverse().join())
 
   function onFrame(f: Uint8Array) {
+    listeners.forEach((l) => l(f))
     const w = waiters.find((x) => x.match(f))
     if (!w) return
     waiters = waiters.filter((x) => x !== w)
@@ -77,6 +112,8 @@ export const useTraceStore = defineStore('trace', () => {
     status.value = 'idle'
     companion.value = null
     waiters = []
+    listeners.clear()
+    stopCampaign()
   }
 
   /** The next frame matching, or null after timeoutMs (or on disconnection). */
@@ -94,6 +131,19 @@ export const useTraceStore = defineStore('trace', () => {
         resolve(null)
       }, timeoutMs)
       waiters.push(w)
+    })
+  }
+
+  /** Waits ms, or less if the campaign is stopped meanwhile. */
+  function pause(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(done, ms)
+      function done() {
+        window.clearTimeout(timer)
+        wake = null
+        resolve()
+      }
+      wake = done
     })
   }
 
@@ -155,59 +205,171 @@ export const useTraceStore = defineStore('trace', () => {
   }
 
   /**
-   * Sends the trace along the path exactly as picked and waits for it to come
-   * back. `animate` gets the legs to show on the map: the first half when it
-   * leaves, the rest (with every leg's SNR) when it is back.
+   * Sends one trace along `keys` and waits for it to come back. `animate`
+   * gets the legs to show on the map: the first half when it leaves, the rest
+   * (with every leg's SNR) when it is back.
    */
-  async function run(animate: (hops: TraceHop[]) => void) {
+  async function traceOnce(keys: string[], animate: (hops: TraceHop[]) => void): Promise<TraceResult> {
     const t = transport.value
     const self = companion.value
-    if (!t || !self || !canRun.value) return
-    running.value = true
-    result.value = null
-    const done = (r: TraceResult) => {
-      result.value = r
-      running.value = false
-    }
+    if (!t || !self) return { ok: false, reason: 'compagnon déconnecté', at: Date.now() }
     try {
-      const keys = path.value
       // Every node the trace visits, from the companion and back to it.
       const visits = [self.publicKey, ...keys, self.publicKey]
       const hops: TraceHop[] = visits.slice(1).map((to, i) => ({ from: visits[i]!, to }))
       const half = Math.ceil(hops.length / 2)
-      const outbound = hops.slice(0, half)
 
       const tag = crypto.getRandomValues(new Uint32Array(1))[0]!
       const ack = waitFor((f) => f[0] === RESP_ERR || parseSent(f)?.tag === tag, REPLY_TIMEOUT_MS)
       await t.send(encodeTrace(tag, keys))
       const sentFrame = await ack
-      if (!sentFrame) return done({ ok: false, reason: 'le compagnon ne répond pas', at: Date.now() })
+      if (!sentFrame) return { ok: false, reason: 'le compagnon ne répond pas', at: Date.now() }
       const sent = parseSent(sentFrame)
-      if (!sent) return done({ ok: false, reason: 'trace refusée par le compagnon', at: Date.now() })
-      animate(outbound)
+      if (!sent) return { ok: false, reason: 'trace refusée par le compagnon', at: Date.now() }
+      animate(hops.slice(0, half))
 
       const back = await waitFor((f) => parseTraceData(f)?.tag === tag, sent.timeoutMs + TRACE_MARGIN_MS)
       const data = back && parseTraceData(back)
       if (!data) {
         const s = Math.round((sent.timeoutMs + TRACE_MARGIN_MS) / 1000)
-        return done({
+        return {
           ok: false,
-          reason:
-            status.value === 'connected'
-              ? `pas de retour après ${s} s : un saut n'a pas relayé`
-              : 'compagnon déconnecté pendant la trace',
+          reason: connected.value
+            ? `pas de retour après ${s} s : un saut n'a pas relayé`
+            : 'compagnon déconnecté pendant la trace',
           at: Date.now(),
-        })
+        }
       }
       // snrs[i] is what visit i+1 measured hearing visit i; the last leg is
       // the companion hearing the final hop.
       const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
       animate(measured.slice(half))
-      done({ ok: true, hops: measured, at: Date.now() })
+      return { ok: true, hops: measured, at: Date.now() }
     } catch (e) {
-      done({ ok: false, reason: e instanceof Error ? e.message : String(e), at: Date.now() })
+      return { ok: false, reason: e instanceof Error ? e.message : String(e), at: Date.now() }
     }
   }
+
+  /** Sends the hand-picked path. */
+  async function run(animate: (hops: TraceHop[]) => void) {
+    if (!canRun.value) return
+    running.value = true
+    result.value = null
+    result.value = await traceOnce(path.value, animate)
+    running.value = false
+  }
+
+  /**
+   * Asks the repeaters in direct range to answer, and collects the answers
+   * for DISCOVER_WINDOW_MS. Each gives the link to the companion both ways.
+   */
+  async function discover() {
+    const t = transport.value
+    if (!t || busy.value) return
+    discovering.value = true
+    discovered.value = []
+    campaign.value = []
+    const tag = crypto.getRandomValues(new Uint32Array(1))[0]!
+    const found = new Map<string, DiscoveredRepeater>()
+    const listen = (f: Uint8Array) => {
+      const r = parseDiscoverResponse(f)
+      if (!r || r.tag !== tag || r.publicKey === companion.value?.publicKey) return
+      found.set(r.publicKey, r)
+      discovered.value = [...found.values()].sort((a, b) => b.snrAtCompanion - a.snrAtCompanion)
+    }
+    listeners.add(listen)
+    try {
+      const ack = waitFor((f) => f[0] === RESP_OK || f[0] === RESP_ERR, REPLY_TIMEOUT_MS)
+      await t.send(encodeDiscover(tag))
+      const reply = await ack
+      if (reply?.[0] === RESP_OK) await pause(DISCOVER_WINDOW_MS)
+    } finally {
+      listeners.delete(listen)
+      discovering.value = false
+      discoveredAt.value = Date.now()
+    }
+  }
+
+  /** The traces the automatic mode would run, from what the map knows now. */
+  const proposal = computed<PlannedTrace[]>(() => {
+    if (!discovered.value.length) return []
+    const mesh = useMeshStore()
+    return planTraces(
+      discovered.value.map((r) => r.publicKey),
+      mesh.links.features.map((f) => f.properties),
+      { self: companion.value?.publicKey, maxDepth: depth.value },
+    )
+  })
+
+  /** Runs the proposed traces one after the other, with a pause between them. */
+  async function runCampaign(animate: (hops: TraceHop[]) => void) {
+    if (busy.value || !proposal.value.length) return
+    campaign.value = proposal.value.map((p) => ({ ...p, status: 'pending' }))
+    campaignRunning.value = true
+    stopRequested = false
+    try {
+      for (let i = 0; i < campaign.value.length; i++) {
+        if (stopRequested || !connected.value) break
+        if (i > 0) await pause(CAMPAIGN_GAP_MS)
+        if (stopRequested || !connected.value) break
+        campaign.value[i]!.status = 'running'
+        const r = await traceOnce(campaign.value[i]!.path, animate)
+        campaign.value[i]!.result = r
+        campaign.value[i]!.status = r.ok ? 'ok' : 'ko'
+      }
+    } finally {
+      campaignRunning.value = false
+    }
+  }
+
+  /** Stops after the trace in flight; also cuts a discovery's wait short. */
+  function stopCampaign() {
+    stopRequested = true
+    wake?.()
+  }
+
+  /**
+   * Every link reading to label on the map: the discovery's (both ways
+   * between the companion and each repeater) and those of returned traces.
+   * The latest reading of each direction wins.
+   */
+  const labelHops = computed<TraceHop[]>(() => {
+    const self = companion.value?.publicKey
+    const byDir = new Map<string, TraceHop>()
+    const put = (h: TraceHop) => h.snr !== undefined && byDir.set(`${h.from}>${h.to}`, h)
+    if (self && mode.value === 'auto') {
+      for (const r of discovered.value) {
+        put({ from: self, to: r.publicKey, snr: r.snrAtRepeater })
+        put({ from: r.publicKey, to: self, snr: r.snrAtCompanion })
+      }
+      for (const c of campaign.value) if (c.result?.ok) c.result.hops.forEach(put)
+    } else if (result.value?.ok) {
+      result.value.hops.forEach(put)
+    }
+    return [...byDir.values()]
+  })
+
+  /**
+   * The routes the map keeps in focus, fading the rest: the hand-picked path
+   * once sent, or in automatic mode the discovered repeaters and the planned
+   * (or running) traces. Each route starts and ends at the companion.
+   */
+  const focusPaths = computed<string[][] | null>(() => {
+    const self = companion.value?.publicKey
+    if (!open.value || !self) return null
+    if (mode.value === 'manual') {
+      if (!(running.value || result.value) || !path.value.length) return null
+      return [[self, ...path.value, self]]
+    }
+    const routes = [
+      ...discovered.value.map((r) => [self, r.publicKey, self]),
+      ...(campaign.value.length ? campaign.value : proposal.value).map((p) => [self, ...p.path, self]),
+    ]
+    return routes.length ? routes : null
+  })
+
+  /** The trace being sent in automatic mode, drawn like a hand-picked path. */
+  const currentCampaignPath = computed(() => campaign.value.find((c) => c.status === 'running')?.path ?? [])
 
   return {
     available,
@@ -215,10 +377,12 @@ export const useTraceStore = defineStore('trace', () => {
     companion,
     connectError,
     open,
+    mode,
     path,
     running,
     result,
     selecting,
+    busy,
     canRun,
     connect,
     disconnect,
@@ -228,5 +392,18 @@ export const useTraceStore = defineStore('trace', () => {
     completeReturn,
     clearPath,
     run,
+    discovering,
+    discovered,
+    discoveredAt,
+    depth,
+    proposal,
+    campaign,
+    campaignRunning,
+    discover,
+    runCampaign,
+    stopCampaign,
+    labelHops,
+    focusPaths,
+    currentCampaignPath,
   }
 })

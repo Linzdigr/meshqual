@@ -223,21 +223,23 @@ watch(
   },
 )
 
-// A returned trace labels its links on the map while its result is shown:
-// a new path, a new run or closing the panel takes them away.
+// Trace readings label their links on the map while the panel is open: a
+// returned trace, or in automatic mode the discovery and every trace back.
 watch(
-  () => [trace.result, trace.open] as const,
-  ([r, open]) => meshMap.value?.setTraceLabels(open && r?.ok ? r.hops : []),
+  () => [trace.labelHops, trace.open] as const,
+  ([hops, open]) => meshMap.value?.setTraceLabels(open ? hops : []),
 )
 
-// From launch until its result goes away, the trace has the map to itself:
-// the nodes and links it does not use fade like around a selected link.
-const traceVisits = computed(() => {
-  const self = trace.companion?.publicKey
-  if (!trace.open || !(trace.running || trace.result) || !trace.path.length) return null
-  return self ? [self, ...trace.path, self] : [...trace.path]
-})
-watch(traceVisits, (v) => meshMap.value?.setTraceFocus(v))
+// The traces have the map to themselves: nodes and links they do not use
+// fade like around a selected link (stores/trace focusPaths).
+watch(
+  () => trace.focusPaths,
+  (routes) => meshMap.value?.setTraceFocus(routes),
+)
+
+function runCampaign() {
+  void trace.runCampaign((hops) => meshMap.value?.animateHops(hops))
+}
 
 function runTrace() {
   void trace.run((hops) => meshMap.value?.animateHops(hops))
@@ -310,7 +312,7 @@ watch(
         :issues="store.issues"
         :altitude="store.altitude"
         :no-auto-fit="deepLink"
-        :trace-path="trace.selecting || trace.running ? trace.path : []"
+        :trace-path="trace.campaignRunning ? trace.currentCampaignPath : trace.selecting || trace.running ? trace.path : []"
         :trace-start="trace.companion?.publicKey ?? null"
         @moveend="onMoveEnd"
         @select="(id) => !trace.selecting && store.selectLink(id)"
@@ -320,7 +322,7 @@ watch(
 
       <!-- The map's right-hand control column, under MapLibre's zoom buttons. -->
       <div class="map-tools">
-        <TraceControl @run="runTrace" />
+        <TraceControl @run="runTrace" @run-campaign="runCampaign" />
         <LayersControl
           :altitude="store.altitude"
           :range="altitudeRange"

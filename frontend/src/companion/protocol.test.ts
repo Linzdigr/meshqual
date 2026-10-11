@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   encodeAppStart,
+  encodeDiscover,
+  parseDiscoverResponse,
   encodeTrace,
   parseSelfInfo,
   parseSent,
@@ -88,5 +90,29 @@ describe('serial framing', () => {
     expect(fr.push(new Uint8Array([0x00, 0x3e, 3, 0, 9]))).toEqual([])
     const out = fr.push(new Uint8Array([8, 7, 0x3e, 1, 0, 5]))
     expect(out.map((f) => Array.from(f))).toEqual([[9, 8, 7], [5]])
+  })
+})
+
+describe('node discovery', () => {
+  it('asks repeaters for their full key', () => {
+    expect(Array.from(encodeDiscover(0x01020304))).toEqual([55, 0x80, 4, 4, 3, 2, 1, 0, 0, 0, 0])
+  })
+
+  it('reads a repeater answer with both SNRs', () => {
+    const key = Array.from({ length: 32 }, (_, i) => i + 1)
+    const f = new Uint8Array([0x8e, 0xf8, 0xa6, 0, 0x92, 26, 4, 3, 2, 1, ...key])
+    const r = parseDiscoverResponse(f)!
+    expect(r.tag).toBe(0x01020304)
+    expect(r.snrAtCompanion).toBe(-2)
+    expect(r.rssiAtCompanion).toBe(-90)
+    expect(r.snrAtRepeater).toBe(6.5)
+    expect(r.publicKey.startsWith('0102030405')).toBe(true)
+    expect(r.publicKey).toHaveLength(64)
+  })
+
+  it('ignores other control data and short answers', () => {
+    const key = new Array(32).fill(0)
+    expect(parseDiscoverResponse(new Uint8Array([0x8e, 0, 0, 0, 0x91, 0, 0, 0, 0, 0, ...key]))).toBeNull() // not a repeater
+    expect(parseDiscoverResponse(new Uint8Array([0x8e, 0, 0, 0, 0x92, 0, 0, 0, 0, 0, 1, 2]))).toBeNull()
   })
 })
