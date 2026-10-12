@@ -49,7 +49,9 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 		"liveWindow":     s.d.LiveWindow.String(),
 		// Links keep their signal values this long; the map fades them with age.
 		"measureRetentionSec": int(max(s.d.MeasureRetention, s.d.LiveWindow).Seconds()),
-		"framesMax":           s.d.FramesMax,
+		// The trace panel offers to send its measurements when this is on.
+		"submitEnabled": s.d.SubmitToken != "",
+		"framesMax":     s.d.FramesMax,
 		// SNR bucket edges in dB. Four buckets, because the map encodes them as
 		// an ordinal one-hue ramp: lightness carries the order, which stays
 		// readable under colour-vision deficiency where a red/green scale does

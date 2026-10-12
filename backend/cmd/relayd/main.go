@@ -155,6 +155,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
 		RelayWindow:          cfg.RelayWindow.D(),
+		SubmitToken:          cfg.SubmitToken,
 		Profiles:             profiler(cfg),
 		LosParams:            los.Params{FreqMHz: cfg.LosFreqMHz, AntennaM: cfg.LosAntennaM, K: 4.0 / 3.0},
 		Version:              version, StartedAt: time.Now().UTC(),

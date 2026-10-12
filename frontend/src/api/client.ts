@@ -54,7 +54,36 @@ export interface LinksQuery {
   limit?: number
 }
 
+/** One hop a companion measured, sent to POST /api/measurements. */
+export interface MeasuredHop {
+  from: string
+  to: string
+  snr: number
+}
+
+export interface MeasurementsReply {
+  accepted: number
+  skipped: Record<string, number>
+}
+
 export const api = {
+  /**
+   * Sends what a companion measured (a trace's hops, or a discovery) so the
+   * map gets every hop, not only those an observer heard. Needs the token.
+   */
+  submitMeasurements: async (
+    token: string,
+    body: { companion: string; source: 'trace' | 'discovery'; tag: number; at: string; hops: MeasuredHop[] },
+  ): Promise<MeasurementsReply> => {
+    const res = await fetch(`${BASE}/api/measurements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new ApiError(`/api/measurements: ${res.statusText}`, res.status)
+    return (await res.json()) as MeasurementsReply
+  },
+
   config: (signal?: AbortSignal) => get<ServerConfig>('/api/config', signal),
 
   health: (signal?: AbortSignal) => get<Health>('/api/health', signal),

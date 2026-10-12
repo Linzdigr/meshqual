@@ -80,7 +80,10 @@ type Config struct {
 	PersistObservations bool `json:"persistObservations"`
 
 	CORSOrigins []string `json:"corsOrigins"`
-	LogLevel    string   `json:"logLevel"`
+	// SubmitToken lets browsers holding it send companion measurements
+	// (POST /api/measurements). Empty disables it. Environment only.
+	SubmitToken string `json:"-"`
+	LogLevel    string `json:"logLevel"`
 }
 
 // Duration is a time.Duration that unmarshals from "10s".
@@ -166,6 +169,9 @@ func (c *Config) applyEnv() error {
 	// Added to the list rather than replacing it: local names on top of the defaults.
 	if v := os.Getenv("MESHQUAL_REGION_NAMES"); v != "" {
 		c.RegionNames = append(c.RegionNames, splitAndTrim(v)...)
+	}
+	if v := os.Getenv("MESHQUAL_SUBMIT_TOKEN"); v != "" {
+		c.SubmitToken = v
 	}
 	if v := os.Getenv("MESHQUAL_CORS_ORIGINS"); v != "" {
 		c.CORSOrigins = splitAndTrim(v)

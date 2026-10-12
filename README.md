@@ -204,8 +204,15 @@ Listen-only observers are left out (see below).
 - Chrome or Edge (desktop or Android), over HTTPS or localhost: Safari and
   Firefox have neither Web Bluetooth nor Web Serial.
 - Paths use 2-byte hashes, which repeaters read from firmware v1.11.
-- Results are shown in the browser only. The map records them when the
-  observer hears the trace go by, like any other packet.
+- Observers hear only part of a trace (each retransmission carries the SNR of
+  the hops before it), while the companion gets every hop. With
+  `MESHQUAL_SUBMIT_TOKEN` set on the server, the panel asks for that token once
+  and then sends each returned trace and each discovery to
+  `POST /api/measurements`, so the map gets every hop, including the
+  companion's own link. relayd checks the nodes, the hop length and the SNR
+  range, rate-limits, and counts each hop of a trace once, whether an observer
+  or the companion reported it. Without the token, only what observers hear
+  reaches the map.
 
 ## API
 
@@ -217,6 +224,7 @@ Listen-only observers are left out (see below).
 | `GET /api/links/{a}/{b}/frames?limit=10` | Last frames on the link |
 | `GET /api/links/{a}/{b}/history?window=24h&bucket=1h` | SNR time series (requires TimescaleDB) |
 | `GET /api/links/{a}/{b}/profile` | Line of sight over the IGN ground profile |
+| `POST /api/measurements` | Companion measurements from the trace panel (`Authorization: Bearer <MESHQUAL_SUBMIT_TOKEN>`) |
 | `GET /api/stream?link=A:B` | SSE: `links:changed`, `frame` |
 | `GET /api/config` | SNR thresholds and refresh settings |
 | `GET /api/health` | Source and pipeline status |

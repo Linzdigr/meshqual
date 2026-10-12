@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
 import { DISCOVER_WINDOW_MS, MAX_TRACE_HOPS, RETRY_GAP_MS, useTraceStore, type CampaignItem } from '@/stores/trace'
 import type { Gap } from '@/companion/planner'
@@ -27,6 +27,8 @@ function nameOf(key: string): string {
 const fmtDb = (v: number) => `${v.toFixed(2).replace('.', ',').replace(/,?0+$/, '')} dB`
 
 const hops = computed(() => (trace.result?.ok ? trace.result.hops : []))
+
+const tokenDraft = ref('')
 
 const gapLabel: Record<Gap, string> = {
   unmeasured: 'jamais mesuré',
@@ -119,6 +121,31 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
           {{ trace.companion?.name || 'Compagnon' }}
           <button type="button" class="link" @click="trace.disconnect()">Déconnecter</button>
         </p>
+
+        <!-- Observers hear part of a trace; the companion gets every hop. With the
+             server's token, results go to the map as well. -->
+        <div v-if="trace.submitEnabled" class="submit">
+          <form v-if="!trace.token" class="row" @submit.prevent="trace.setToken(tokenDraft)">
+            <input
+              v-model="tokenDraft"
+              type="password"
+              autocomplete="off"
+              placeholder="Jeton d'envoi à la carte"
+              aria-label="Jeton d'envoi à la carte"
+            />
+            <button type="submit" class="btn" :disabled="!tokenDraft.trim()">OK</button>
+          </form>
+          <p v-else class="note">
+            <span :class="{ ko: trace.submitError }">
+              {{
+                trace.submitError
+                  ? `Envoi à la carte : ${trace.submitError}`
+                  : `Mesures envoyées à la carte : ${trace.submitted}`
+              }}
+            </span>
+            <button type="button" class="link" @click="trace.setToken('')">changer le jeton</button>
+          </p>
+        </div>
         <div class="modes" role="radiogroup" aria-label="Mode">
           <button
             type="button"
@@ -495,6 +522,23 @@ p {
 .attempts {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.submit input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11.5px;
+}
+
+.submit .note {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
 }
 
 .modes {

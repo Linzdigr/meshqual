@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yvanferez/meshqual/backend/internal/hub"
+	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 )
 
@@ -24,6 +25,20 @@ type Sink interface {
 // (see Decode): both ends of a topology or trace sample, the non-observer end
 // of a measured one past zero hops. At zero hops that end is the originator.
 func relaysOf(s Sample) []string {
+	// A companion's own report: a trace's hops relayed it, except the
+	// companion at either end; a discovery proves no relaying at all.
+	if s.SourceID == SourceCompanion {
+		if s.PayloadType != meshcore.PayloadTrace {
+			return nil
+		}
+		var out []string
+		for _, k := range []string{s.AKey, s.BKey} {
+			if k != s.ObserverKey {
+				out = append(out, k)
+			}
+		}
+		return out
+	}
 	switch {
 	case s.Kind != KindMeasured:
 		return []string{s.AKey, s.BKey}
@@ -77,6 +92,8 @@ type Pipeline struct {
 	mu        sync.Mutex
 	sampleBuf []Sample
 	nodeBuf   map[string]NodeUpsert
+
+	traces *TraceDedup
 }
 
 // NewPipeline builds a pipeline.
@@ -96,7 +113,36 @@ func NewPipeline(r *Resolver, a *Aggregator, sink Sink, h *hub.Hub, opt Pipeline
 	return &Pipeline{
 		Resolver: r, Aggregator: a, sink: sink, hub: h, opt: opt, log: log,
 		nodeBuf: make(map[string]NodeUpsert),
+		traces:  NewTraceDedup(15 * time.Minute),
 	}
+}
+
+// AddCompanionSamples records measurements a companion radio returned to the
+// browser that drives it: the full result of a trace, or a discovery. Hops an
+// observer already reported for the same trace (tag) are skipped, as are
+// later observer reports of these. Returns how many were kept.
+func (p *Pipeline) AddCompanionSamples(tag uint32, samples []Sample) int {
+	kept := samples[:0:0]
+	for _, s := range samples {
+		if p.traces.First(tag, sampleFrom(s), sampleTo(s), time.Now()) {
+			kept = append(kept, s)
+		}
+	}
+	if len(kept) == 0 {
+		return 0
+	}
+	for _, s := range kept {
+		p.Resolver.Touch(s.AKey, s.At)
+		p.Resolver.Touch(s.BKey, s.At)
+		for _, k := range relaysOf(s) {
+			p.Resolver.MarkRelay(k, s.At)
+		}
+	}
+	p.Aggregator.Add(&Decoded{Samples: kept})
+	p.mu.Lock()
+	p.sampleBuf = append(p.sampleBuf, kept...)
+	p.mu.Unlock()
+	return len(kept)
 }
 
 // Stats reports pipeline counters for /api/health.
@@ -159,6 +205,17 @@ func (p *Pipeline) handle(obs source.Observation) {
 		return
 	}
 	p.decoded.Add(1)
+	// An observer hears a trace at each retransmission, each carrying the
+	// SNR of every hop before: keep each hop once per trace.
+	if d.Trace != nil {
+		kept := d.Samples[:0]
+		for _, s := range d.Samples {
+			if p.traces.First(d.Trace.Tag, sampleFrom(s), sampleTo(s), s.At) {
+				kept = append(kept, s)
+			}
+		}
+		d.Samples = kept
+	}
 	p.Aggregator.Add(d)
 
 	p.mu.Lock()

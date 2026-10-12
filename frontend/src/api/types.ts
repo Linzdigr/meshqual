@@ -140,6 +140,8 @@ export interface ServerConfig {
   asymmetryThresholdDb?: number
   /** How long a link keeps its signal values after it was last heard. */
   measureRetentionSec?: number
+  /** The server takes companion measurements from browsers holding its token. */
+  submitEnabled?: boolean
 }
 
 export interface SourceStats {

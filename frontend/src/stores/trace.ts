@@ -23,6 +23,7 @@ import {
   type TransportKind,
 } from '@/companion/transport'
 import { useMeshStore } from '@/stores/mesh'
+import { api, ApiError, type MeasuredHop } from '@/api/client'
 
 /** One radio hop of a trace, in the direction the trace travelled. */
 export interface TraceHop {
@@ -33,7 +34,7 @@ export interface TraceHop {
 }
 
 export type TraceResult =
-  | { ok: true; hops: TraceHop[]; at: number }
+  | { ok: true; hops: TraceHop[]; at: number; tag: number }
   | { ok: false; reason: string; at: number }
 
 /** A trace of the automatic mode, with how it went. */
@@ -51,6 +52,15 @@ const TRACE_MARGIN_MS = 4_000
 export const DISCOVER_WINDOW_MS = 10_000
 /** Quiet time between two automatic traces: the channel is shared. */
 const CAMPAIGN_GAP_MS = 6_000
+const TOKEN_KEY = 'meshqual.submitToken'
+
+function loadToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 /** Manual retry: wait this long after a trace that did not come back. */
 export const RETRY_GAP_MS = 5_000
 
@@ -94,6 +104,16 @@ export const useTraceStore = defineStore('trace', () => {
   const campaignRunning = ref(false)
   let stopRequested = false
   let wake: (() => void) | null = null
+
+  /**
+   * Sending to the map: observers hear only part of a trace, the companion
+   * gets every hop. With the server's token, each returned trace and each
+   * discovery is sent (POST /api/measurements).
+   */
+  const token = ref(loadToken())
+  const submitted = ref(0)
+  const submitError = ref<string | null>(null)
+  const submitEnabled = computed(() => useMeshStore().config?.submitEnabled === true)
 
   const transport = shallowRef<Transport | null>(null)
   let waiters: Waiter[] = []
@@ -252,7 +272,9 @@ export const useTraceStore = defineStore('trace', () => {
       // the companion hearing the final hop.
       const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
       animate(measured.slice(half))
-      return { ok: true, hops: measured, at: Date.now() }
+      const ok: TraceResult = { ok: true, hops: measured, at: Date.now(), tag }
+      void submit('trace', tag, measured)
+      return ok
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), at: Date.now() }
     }
@@ -313,6 +335,52 @@ export const useTraceStore = defineStore('trace', () => {
       listeners.delete(listen)
       discovering.value = false
       discoveredAt.value = Date.now()
+    }
+    const self = companion.value?.publicKey
+    if (self && found.size) {
+      void submit(
+        'discovery',
+        tag,
+        [...found.values()].flatMap((r) => [
+          { from: self, to: r.publicKey, snr: r.snrAtRepeater },
+          { from: r.publicKey, to: self, snr: r.snrAtCompanion },
+        ]),
+      )
+    }
+  }
+
+  function setToken(value: string) {
+    token.value = value.trim()
+    submitError.value = null
+    try {
+      if (token.value) localStorage.setItem(TOKEN_KEY, token.value)
+      else localStorage.removeItem(TOKEN_KEY)
+    } catch {}
+  }
+
+  /** Sends measured hops to the server, when it takes them and a token is set. */
+  async function submit(source: 'trace' | 'discovery', tag: number, hops: TraceHop[]) {
+    const self = companion.value?.publicKey
+    if (!submitEnabled.value || !token.value || !self) return
+    const measured = hops.filter((h): h is MeasuredHop => h.snr !== undefined)
+    if (!measured.length) return
+    try {
+      const r = await api.submitMeasurements(token.value, {
+        companion: self,
+        source,
+        tag,
+        at: new Date().toISOString(),
+        hops: measured,
+      })
+      submitted.value += r.accepted
+      submitError.value = null
+    } catch (e) {
+      submitError.value =
+        e instanceof ApiError && e.status === 401
+          ? 'jeton refusé'
+          : e instanceof ApiError && e.status === 429
+            ? 'trop d’envois, réessai à la prochaine trace'
+            : 'envoi impossible'
     }
   }
 
@@ -443,6 +511,11 @@ export const useTraceStore = defineStore('trace', () => {
     stopCampaign,
     labelHops,
     focusPaths,
+    token,
+    submitted,
+    submitError,
+    submitEnabled,
+    setToken,
     currentCampaignPath,
   }
 })

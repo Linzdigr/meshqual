@@ -1,8 +1,11 @@
 package ingest
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -556,4 +559,52 @@ func TestAdvertNamesItsRegion(t *testing.T) {
 			t.Errorf("scope %v, region %q; want set, %q", n.RegionScope, n.RegionName, step.want)
 		}
 	}
+}
+
+type nopSink struct{}
+
+func (nopSink) WriteSamples(context.Context, []Sample) error            { return nil }
+func (nopSink) UpsertNodes(context.Context, []NodeUpsert) error         { return nil }
+func (nopSink) MarkRelayed(context.Context, map[string]time.Time) error { return nil }
+
+// An observer hears a trace at each retransmission, each one carrying the SNR
+// of every hop before: each hop of a trace is recorded once.
+func TestTraceHopsCountOncePerTrace(t *testing.T) {
+	r := NewResolver()
+	a, b := pk(0x01), pk(0x02)
+	for _, k := range []string{a, b} {
+		r.Upsert(Node{Key: k})
+	}
+	ag := NewAggregator(10, 64, time.Hour)
+	p := NewPipeline(r, ag, nopSink{}, nil, PipelineOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// Trace A B A (1-byte hashes), heard after B relayed (2 SNRs), then after
+	// A relayed back (3 SNRs).
+	payload := []byte{7, 0, 0, 0, 0, 0, 0, 0, 0}
+	payload = append(payload, mustHex(a)[0], mustHex(b)[0], mustHex(a)[0])
+	heard := func(snrs ...int8) []byte {
+		raw := []byte{hdr(meshcore.RouteDirect, meshcore.PayloadTrace), byte(len(snrs))}
+		for _, s := range snrs {
+			raw = append(raw, byte(s))
+		}
+		return append(raw, payload...)
+	}
+	p.handle(source.Observation{Raw: heard(20, 16), ReceivedAt: time.Now(), ObserverKey: pk(0x09)})
+	p.handle(source.Observation{Raw: heard(20, 16, 8), ReceivedAt: time.Now(), ObserverKey: pk(0x09)})
+
+	v, ok := ag.Get(LinkID{A: a, B: b})
+	if !ok || v.SNRAB == nil || v.SNRBA == nil {
+		t.Fatalf("link = %+v, want both directions", v)
+	}
+	if v.SNRAB.Count != 1 || v.SNRBA.Count != 1 {
+		t.Errorf("counts AB %d BA %d, want 1 each: the A->B hop was heard twice", v.SNRAB.Count, v.SNRBA.Count)
+	}
+}
+
+func mustHex(k string) []byte {
+	b, err := hex.DecodeString(k)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

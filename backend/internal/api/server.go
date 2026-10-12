@@ -42,6 +42,8 @@ type Deps struct {
 	NodeMaxAge time.Duration
 	// RelayWindow: see ingest.Node.ListenOnly. 0 means 48 h.
 	RelayWindow time.Duration
+	// SubmitToken enables POST /api/measurements for browsers that hold it.
+	SubmitToken string
 	// Elevation profiles for the line-of-sight check; nil disables it.
 	Profiles  Profiler
 	LosParams los.Params
@@ -59,6 +61,8 @@ type Server struct {
 	topoMu    sync.Mutex
 	topoAt    time.Time
 	topoCache *topo.Analysis
+
+	limiter *rateLimiter
 }
 
 // New builds the HTTP handler. Routing is stdlib ServeMux with method patterns,
@@ -67,7 +71,7 @@ func New(d Deps) *Server {
 	if d.FramesMax <= 0 {
 		d.FramesMax = 20
 	}
-	s := &Server{d: d, mux: http.NewServeMux()}
+	s := &Server{d: d, mux: http.NewServeMux(), limiter: newRateLimiter(measurementsPerMinute)}
 
 	s.mux.HandleFunc("GET /api/health", s.health)
 	s.mux.HandleFunc("GET /api/config", s.config)
@@ -79,6 +83,7 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/history", s.history)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/profile", s.profile)
 	s.mux.HandleFunc("GET /api/stream", s.stream)
+	s.mux.HandleFunc("POST /api/measurements", s.measurements)
 	return s
 }
 
@@ -100,8 +105,8 @@ func (s *Server) cors(w http.ResponseWriter, r *http.Request) {
 		if allowed == "*" || strings.EqualFold(allowed, origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			return
 		}
 	}
