@@ -48,7 +48,7 @@ export const MAX_TRACE_HOPS = 32
 /** Slack on top of the firmware's own round-trip estimate. */
 const TRACE_MARGIN_MS = 4_000
 /** Repeaters answer a discovery after a random delay (a few seconds, widened x4). */
-export const DISCOVER_WINDOW_MS = 20_000
+export const DISCOVER_WINDOW_MS = 10_000
 /** Quiet time between two automatic traces: the channel is shared. */
 const CAMPAIGN_GAP_MS = 6_000
 /** Manual retry: wait this long after a trace that did not come back. */
