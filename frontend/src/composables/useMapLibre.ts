@@ -51,6 +51,8 @@ const LAYER_SELECTED = 'links-selected'
 const LAYER_NODES = 'nodes-circles'
 /** Listen-only observers: a diamond instead of a circle (api listenOnly). */
 const LAYER_LISTEN = 'nodes-listen'
+/** Companions: a violet phone, a personal device rather than infrastructure. */
+const LAYER_COMPANIONS = 'nodes-companions'
 const LAYER_NODE_SELECTED = 'nodes-selected'
 const LAYER_NODE_WARN = 'nodes-hash-warn'
 const LAYER_NODE_LABELS = 'nodes-labels'
@@ -124,6 +126,12 @@ interface ActiveProperties {
 
 const CHEVRON = 'chevron'
 const DIAMOND = { light: 'diamond-light', dark: 'diamond-dark' } as const
+const PHONE = { light: 'phone-light', dark: 'phone-dark' } as const
+/** Companions' violet (theme --pt-routing), apart from the SNR ramp and node greys. */
+const COMPANION_LIGHT = '#7c3aed'
+const COMPANION_DARK = '#c4b5fd'
+const IS_COMPANION: ExpressionSpecification = ['==', ['get', 'nodeType'], 'companion']
+const IS_LISTEN_ONLY: ExpressionSpecification = ['==', ['get', 'listenOnly'], true]
 const WARN = 'warn-1byte'
 
 
@@ -176,6 +184,30 @@ function diamondImage(fill: string, stroke: string): ImageData {
   ctx.fill()
   ctx.stroke()
   return ctx.getImageData(0, 0, px, px)
+}
+
+/**
+ * A companion: a phone outline (tall rounded body, its screen filled) in
+ * violet, a hue nothing else on the map uses, so personal devices read apart
+ * from the mesh's infrastructure.
+ */
+function phoneImage(color: string, fill: string): ImageData {
+  const w = 18 // 9 x 13 CSS px at pixelRatio 2
+  const h = 26
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  ctx.beginPath()
+  ctx.roundRect(2, 2, w - 4, h - 4, 3.5)
+  ctx.fillStyle = fill
+  ctx.strokeStyle = color
+  ctx.lineWidth = 3
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = color
+  ctx.fillRect(5.5, 6, w - 11, h - 14) // the screen
+  return ctx.getImageData(0, 0, w, h)
 }
 
 /**
@@ -573,7 +605,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       id: LAYER_NODES,
       type: 'circle' as const,
       source: NODES_SOURCE,
-      filter: ['!=', ['get', 'listenOnly'], true] as ExpressionSpecification,
+      filter: ['all', ['!', IS_LISTEN_ONLY], ['!', IS_COMPANION]] as ExpressionSpecification,
       paint: {
         'circle-radius': [
           'interpolate',
@@ -593,9 +625,21 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       id: LAYER_LISTEN,
       type: 'symbol' as const,
       source: NODES_SOURCE,
-      filter: ['==', ['get', 'listenOnly'], true] as ExpressionSpecification,
+      filter: IS_LISTEN_ONLY,
       layout: {
         'icon-image': dark ? DIAMOND.dark : DIAMOND.light,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 12, 1] as ExpressionSpecification,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    },
+    {
+      id: LAYER_COMPANIONS,
+      type: 'symbol' as const,
+      source: NODES_SOURCE,
+      filter: ['all', IS_COMPANION, ['!', IS_LISTEN_ONLY]] as ExpressionSpecification,
+      layout: {
+        'icon-image': dark ? PHONE.dark : PHONE.light,
         'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 12, 1] as ExpressionSpecification,
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
@@ -867,6 +911,8 @@ export function useMapLibre(opts: UseMapOptions) {
       map.addImage(WARN, warnImage(), { pixelRatio: 2 })
       map.addImage(DIAMOND.light, diamondImage(SURFACE_LIGHT, NO_DATA_LIGHT), { pixelRatio: 2 })
       map.addImage(DIAMOND.dark, diamondImage(SURFACE_DARK, NO_DATA_DARK), { pixelRatio: 2 })
+      map.addImage(PHONE.light, phoneImage(COMPANION_LIGHT, SURFACE_LIGHT), { pixelRatio: 2 })
+      map.addImage(PHONE.dark, phoneImage(COMPANION_DARK, SURFACE_DARK), { pixelRatio: 2 })
       addDataLayers()
       ready = true
       applyView()
@@ -907,7 +953,7 @@ export function useMapLibre(opts: UseMapOptions) {
       ]
       let best: string | null = null
       let bestD = Infinity
-      for (const f of m.queryRenderedFeatures(box, { layers: [LAYER_NODES, LAYER_LISTEN] })) {
+      for (const f of m.queryRenderedFeatures(box, { layers: [LAYER_NODES, LAYER_LISTEN, LAYER_COMPANIONS] })) {
         const key = f.properties?.['key']
         if (typeof key !== 'string' || f.geometry.type !== 'Point') continue
         const p = m.project(f.geometry.coordinates as [number, number])
@@ -1256,6 +1302,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setPaintProperty(LAYER_NODES, 'circle-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_NODES, 'circle-stroke-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_LISTEN, 'icon-opacity', nodeOpacity)
+    map.setPaintProperty(LAYER_COMPANIONS, 'icon-opacity', nodeOpacity)
     map.setPaintProperty(LAYER_NODE_WARN, 'icon-opacity', nodeOpacity)
     // Only focused nodes keep a label: other labels would compete for the space.
     map.setFilter(LAYER_NODE_LABELS, on ? inNodes : null)
@@ -1311,6 +1358,7 @@ export function useMapLibre(opts: UseMapOptions) {
       LAYER_NODE_LABELS,
       LAYER_NODE_SELECTED,
       LAYER_NODE_WARN,
+      LAYER_COMPANIONS,
       LAYER_LISTEN,
       LAYER_NODES,
       LAYER_SELECTED,

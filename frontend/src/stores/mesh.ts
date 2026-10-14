@@ -135,6 +135,31 @@ export const useMeshStore = defineStore('mesh', () => {
   const functionalCount = computed(
     () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
   )
+  /**
+   * Companions are personal devices, not the mesh: hidden by default with
+   * their links, shown while toggled on (key C). Not remembered on purpose.
+   */
+  const showCompanions = ref(false)
+  /** Keys shown whatever the toggle: the companion driving the trace panel. */
+  const alwaysShown = ref<string[]>([])
+  const hidden = (key: string, type?: string) => type === 'companion' && !alwaysShown.value.includes(key)
+  const visibleNodes = computed(() =>
+    showCompanions.value
+      ? nodes.value
+      : { ...nodes.value, features: nodes.value.features.filter((f) => !hidden(f.properties.key, f.properties.nodeType)) },
+  )
+  const visibleLinks = computed(() =>
+    showCompanions.value
+      ? links.value
+      : {
+          ...links.value,
+          features: links.value.features.filter(
+            (f) => !hidden(f.properties.aKey, f.properties.aType) && !hidden(f.properties.bKey, f.properties.bType),
+          ),
+        },
+  )
+  const isCompanion = (t?: string) => t === 'companion'
+  const companionCount = computed(() => nodes.value.features.filter((f) => isCompanion(f.properties.nodeType)).length)
   /** Listen-only observers in view (drawn as diamonds). */
   const listenOnlyCount = computed(() => nodes.value.features.filter((f) => f.properties.listenOnly).length)
   /** Nodes in view per configuration issue (flagged ⚠ on the map). */
@@ -341,6 +366,11 @@ export const useMeshStore = defineStore('mesh', () => {
     functionalCount,
     issueCounts,
     listenOnlyCount,
+    showCompanions,
+    alwaysShown,
+    visibleNodes,
+    visibleLinks,
+    companionCount,
     issues,
     toggleIssue,
     loading,

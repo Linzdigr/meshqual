@@ -27,6 +27,9 @@ export interface LinkProperties {
   distKm: number
   /** log10(samples+1): the width channel, so a backbone does not hide the leaves. */
   weight: number
+  /** The ends' node types ("repeater", "companion"…). */
+  aType?: string
+  bType?: string
   snrMedian?: number
   snrP10?: number
   snrMin?: number

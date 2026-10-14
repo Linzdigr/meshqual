@@ -160,6 +160,10 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			// orders of magnitude more than a leaf, and a linear width would
 			// make everything but the busiest pair invisible.
 			"weight": round2(math.Log10(float64(l.Samples) + 1)),
+			// The ends' node types: the map hides companions (and their
+			// links) unless asked, even when the companion is out of view.
+			"aType": meshcore.AdvTypeName(na.NodeType),
+			"bType": meshcore.AdvTypeName(nb.NodeType),
 		}
 		if l.SNR != nil {
 			props["snrMedian"] = l.SNR.Median

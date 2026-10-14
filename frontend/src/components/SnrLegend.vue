@@ -20,6 +20,9 @@ const props = defineProps<{
   issueCounts: Record<NodeIssue, number>
   /** Listen-only observers in view. */
   listenOnlyCount: number
+  /** Companions in view, and whether they are shown (key C). */
+  companionCount: number
+  showCompanions: boolean
   issues: NodeIssue[]
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
@@ -178,6 +181,20 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         <p class="caveat">
           Un lien topologique prouve que les deux relais s'entendent, mais le champ
           <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
+        </p>
+      </div>
+
+      <div v-if="companionCount > 0" class="block">
+        <p class="hashwarn" :class="{ off: !showCompanions }">
+          <svg class="phone" viewBox="0 0 10 14" width="9" height="13" aria-hidden="true">
+            <rect x="1" y="1" width="8" height="12" rx="2" />
+            <rect class="screen" x="2.75" y="3" width="4.5" height="6" />
+          </svg>
+          <span>
+            Compagnons
+            <small>{{ showCompanions ? 'touche C pour masquer' : 'masqués · touche C' }}</small>
+          </span>
+          <span class="mono count">{{ companionCount }}</span>
         </p>
       </div>
 
@@ -413,6 +430,28 @@ ul {
   margin: 0;
   font-size: 12px;
   color: var(--text-primary);
+}
+
+.hashwarn .phone {
+  justify-self: center;
+  fill: var(--surface-0);
+  stroke: var(--pt-routing);
+  stroke-width: 1.5;
+}
+
+.hashwarn .phone .screen {
+  fill: var(--pt-routing);
+  stroke: none;
+}
+
+.hashwarn small {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.hashwarn.off > span:not(.count) {
+  color: var(--text-muted);
 }
 
 .hashwarn .diamond {

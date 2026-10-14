@@ -40,6 +40,32 @@ const deepLink = initial.link !== null || initial.node !== null
 // A notice the map refresh does not clear (it resets store.error on success).
 const notice = ref<string | null>(null)
 let noticeTimer: number | undefined
+/** A short confirmation that does not look like an error (unlike notice). */
+const toast = ref<string | null>(null)
+let toastTimer: number | undefined
+function showToast(text: string) {
+  toast.value = text
+  window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => (toast.value = null), 2_500)
+}
+
+// C shows or hides the companions, unless the key is being typed somewhere.
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'c' && e.key !== 'C') return
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  const t = e.target as HTMLElement | null
+  if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return
+  store.showCompanions = !store.showCompanions
+  showToast(store.showCompanions ? 'Compagnons affichés (C pour masquer)' : 'Compagnons masqués (C pour afficher)')
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+// The companion connected to the trace panel stays on the map: traces start there.
+watch(
+  () => trace.companion?.publicKey,
+  (k) => (store.alwaysShown = k ? [k] : []),
+)
+onUnmounted(() => window.removeEventListener('keydown', onKey))
+
 function showNotice(text: string) {
   notice.value = text
   window.clearTimeout(noticeTimer)
@@ -200,7 +226,7 @@ const stream = useLiveStream({
 
 const counts = computed(() => {
   const out: Record<LinkKind, number> = { measured: 0, trace: 0, topology: 0 }
-  for (const f of store.links.features) out[f.properties.kind] = (out[f.properties.kind] ?? 0) + 1
+  for (const f of store.visibleLinks.features) out[f.properties.kind] = (out[f.properties.kind] ?? 0) + 1
   return out
 })
 
@@ -298,8 +324,8 @@ watch(
     <main ref="mainEl">
       <MeshMap
         ref="meshMap"
-        :links="store.links"
-        :nodes="store.nodes"
+        :links="store.visibleLinks"
+        :nodes="store.visibleNodes"
         :selected-link-id="store.selectedLinkId"
         :selected-node-key="store.selectedNodeKey"
         :thresholds="store.snrThresholds"
@@ -344,6 +370,8 @@ watch(
           :retention-days="Math.round(store.measureRetentionSec / 86400)"
           :issue-counts="store.issueCounts"
           :listen-only-count="store.listenOnlyCount"
+          :companion-count="store.companionCount"
+          :show-companions="store.showCompanions"
           :issues="store.issues"
           @toggle-issue="store.toggleIssue"
           v-model:open="legendOpen"
@@ -378,6 +406,7 @@ watch(
           @set-antenna="store.setAntenna"
         />
       </div>
+      <p v-if="toast" class="toast" role="status">{{ toast }}</p>
     </main>
   </div>
 </template>
@@ -393,6 +422,23 @@ main {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.toast {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  z-index: 4;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  font-size: 12px;
+  color: var(--text-primary);
+  pointer-events: none;
 }
 
 .map-tools {
