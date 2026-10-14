@@ -82,6 +82,11 @@ type LinkState struct {
 
 	frames   []Frame // bounded ring, newest last
 	framePos int
+	// The last frames that carried an SNR, kept apart: on a busy link the
+	// plain ring is all path-hop traffic, and the few measurements would
+	// scroll out of it long before they stop counting.
+	measuredFrames []Frame
+	measuredPos    int
 
 	Observers map[string]int
 }
@@ -191,13 +196,17 @@ func (a *Aggregator) Add(d *Decoded) {
 				st.rssiBA, st.rssiBAPos = pushRing(st.rssiBA, st.rssiBAPos, r, a.maxSNR)
 			}
 		}
-		st.frames, st.framePos = pushRing(st.frames, st.framePos, Frame{
+		fr := Frame{
 			At: s.At, Kind: s.Kind.String(), Forward: s.Forward,
 			SNR: s.SNR, RSSI: s.RSSI,
 			PayloadType: payloadName(s.PayloadType), RouteType: routeName(s.RouteType),
 			HopIndex: s.HopIndex, HopCount: s.HopCount,
 			ObserverKey: s.ObserverKey, SourceID: s.SourceID, WireHash: s.WireHash,
-		}, a.maxFrames)
+		}
+		st.frames, st.framePos = pushRing(st.frames, st.framePos, fr, a.maxFrames)
+		if s.SNR != nil {
+			st.measuredFrames, st.measuredPos = pushRing(st.measuredFrames, st.measuredPos, fr, a.maxFrames)
+		}
 
 		a.dirty[id] = struct{}{}
 	}
@@ -225,7 +234,9 @@ func (a *Aggregator) Get(id LinkID) (LinkView, bool) {
 	return st.view(a.MinDirectionSamples), true
 }
 
-// Frames returns the most recent retained frames for a link, newest first.
+// Frames returns a link's most recent frames, newest first: the last limit
+// ones, plus the frames with an SNR that are older than those (up to limit
+// of them), so the measurements behind the link's values stay listed.
 func (a *Aggregator) Frames(id LinkID, limit int) []Frame {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -235,15 +246,34 @@ func (a *Aggregator) Frames(id LinkID, limit int) []Frame {
 		// the field to be a list then crashes on an empty result.
 		return []Frame{}
 	}
-	ordered := ringOrder(st.frames, st.framePos)
-	// newest first
-	for i, j := 0, len(ordered)-1; i < j; i, j = i+1, j-1 {
-		ordered[i], ordered[j] = ordered[j], ordered[i]
+	newestFirst := func(ring []Frame, pos int) []Frame {
+		o := ringOrder(ring, pos)
+		for i, j := 0, len(o)-1; i < j; i, j = i+1, j-1 {
+			o[i], o[j] = o[j], o[i]
+		}
+		if limit > 0 && len(o) > limit {
+			o = o[:limit]
+		}
+		return o
 	}
-	if limit > 0 && len(ordered) > limit {
-		ordered = ordered[:limit]
+	out := newestFirst(st.frames, st.framePos)
+	type key struct {
+		at  time.Time
+		w   string
+		fwd bool
+		hop int
 	}
-	return ordered
+	have := make(map[key]bool, len(out))
+	for _, f := range out {
+		have[key{f.At, f.WireHash, f.Forward, f.HopIndex}] = true
+	}
+	for _, f := range newestFirst(st.measuredFrames, st.measuredPos) {
+		if !have[key{f.At, f.WireHash, f.Forward, f.HopIndex}] {
+			out = append(out, f)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
+	return out
 }
 
 // TakeDirty returns and clears the links changed since the last call. The SSE
@@ -315,6 +345,14 @@ func (st *LinkState) pruneReadings(cutoff time.Time) bool {
 	if !changed {
 		return false
 	}
+	// The listed measurements go with the values they stand for.
+	var frames []Frame
+	for _, f := range ringOrder(st.measuredFrames, st.measuredPos) {
+		if !f.At.Before(cutoff) {
+			frames = append(frames, f)
+		}
+	}
+	st.measuredFrames, st.measuredPos = frames, len(frames)
 	st.Kind, st.LastMeasured = KindTopology, time.Time{}
 	for _, r := range append(append([]reading(nil), st.snr...), st.rssi...) {
 		st.Kind = max(st.Kind, r.kind)

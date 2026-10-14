@@ -32,6 +32,15 @@ const emit = defineEmits<{
  * verdict still shows on the toggle. The choice holds while the panel is open.
  */
 const losOpen = ref(false)
+
+/**
+ * The frame table can hide path-hop frames (no SNR) to show only the
+ * measurements; offered when both kinds are listed.
+ */
+const onlySnr = ref(false)
+const hasSnr = (f: Frame) => f.snr !== null && f.snr !== undefined
+const mixedFrames = computed(() => props.frames.some(hasSnr) && props.frames.some((f) => !hasSnr(f)))
+const shownFrames = computed(() => (onlySnr.value ? props.frames.filter(hasSnr) : props.frames))
 const losVerdict = computed(() => {
   const d = props.profile?.data
   return props.profile?.state === 'ready' && d?.available ? d.result?.verdict : undefined
@@ -379,9 +388,15 @@ const tiles = computed(() => {
       </section>
 
       <section>
-        <h3>{{ frames.length }} dernières trames</h3>
+        <div class="frames-head">
+          <h3>{{ shownFrames.length }} {{ onlySnr ? 'trames avec SNR' : 'dernières trames' }}</h3>
+          <label v-if="mixedFrames" class="only-snr">
+            <input v-model="onlySnr" type="checkbox" />
+            avec SNR seulement
+          </label>
+        </div>
         <FrameTable
-          :frames="frames"
+          :frames="shownFrames"
           :thresholds="thresholds"
           :a-name="link.aName || link.aKey.slice(0, 6)"
           :b-name="link.bName || link.bKey.slice(0, 6)"
@@ -414,6 +429,22 @@ const tiles = computed(() => {
 </template>
 
 <style scoped>
+.frames-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.only-snr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .panel {
   position: relative;
   display: flex;

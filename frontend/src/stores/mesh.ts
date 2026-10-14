@@ -325,7 +325,12 @@ export const useMeshStore = defineStore('mesh', () => {
   function pushFrame(linkId: string, frame: Frame) {
     if (linkId !== selectedLinkId.value) return
     if (frames.value.some((f) => f.wireHash === frame.wireHash && f.at === frame.at)) return
-    frames.value = [frame, ...frames.value].slice(0, framesMax.value)
+    // Like the server: the latest frames, plus the older ones that carried an
+    // SNR, so path-hop traffic does not push the measurements out.
+    const all = [frame, ...frames.value]
+    const max = framesMax.value
+    const older = all.slice(max).filter((f) => f.snr !== null && f.snr !== undefined)
+    frames.value = [...all.slice(0, max), ...older.slice(0, max)]
   }
 
   function setBBox(b: BBox) {

@@ -251,3 +251,26 @@ func TestMeasurementsOutliveTheTrafficWindow(t *testing.T) {
 		t.Errorf("link = %+v, want a plain topology link", v)
 	}
 }
+
+// On a busy link, path-hop frames without SNR crowd the recent frames; the
+// frames that carried an SNR are still listed.
+func TestFramesKeepMeasurementsListed(t *testing.T) {
+	ag := NewAggregator(3, 64, time.Hour)
+	t0 := time.Now().UTC()
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTrace, f64(-10), t0)}})
+	for i := 1; i <= 5; i++ {
+		ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTopology, nil, t0.Add(time.Duration(i)*time.Minute))}})
+	}
+	fr := ag.Frames(LinkID{A: "A", B: "B"}, 3)
+	if len(fr) != 4 {
+		t.Fatalf("frames = %d, want the 3 latest plus the older measured one", len(fr))
+	}
+	if last := fr[len(fr)-1]; last.SNR == nil || *last.SNR != -10 {
+		t.Errorf("oldest listed = %+v, want the trace frame at -10 dB", last)
+	}
+	for i := 1; i < len(fr); i++ {
+		if fr[i].At.After(fr[i-1].At) {
+			t.Fatal("frames not newest first")
+		}
+	}
+}
