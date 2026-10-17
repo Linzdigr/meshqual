@@ -66,7 +66,7 @@ export const ACCENT_LIGHT = '#2a78d6'
 export const ACCENT_DARK = '#3987e5'
 
 /** Default bucket edges in dB; the server sends its own via /api/config. */
-export const DEFAULT_SNR_THRESHOLDS = [-12, -5, 5] as const
+export const DEFAULT_SNR_THRESHOLDS = [-9, -5, 5] as const
 
 export interface SnrBucket {
   /** Inclusive lower bound in dB, or -Infinity. */

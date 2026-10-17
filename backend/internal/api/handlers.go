@@ -56,7 +56,7 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 		// an ordinal one-hue ramp: lightness carries the order, which stays
 		// readable under colour-vision deficiency where a red/green scale does
 		// not. Tune these to the spreading factor actually in use.
-		"snrThresholds": []float64{-12, -5, 5},
+		"snrThresholds": []float64{-9, -5, 5},
 		"snrRange":      []float64{-20, 15},
 		// Gap between direction medians from which the asymmetry view
 		// highlights a link.

@@ -14,9 +14,9 @@ const T = DEFAULT_SNR_THRESHOLDS
 describe('snrBucketIndex', () => {
   it('maps dB values to the right bucket, boundaries included', () => {
     expect(snrBucketIndex(-30, T)).toBe(0)
-    expect(snrBucketIndex(-12.01, T)).toBe(0)
+    expect(snrBucketIndex(-9.01, T)).toBe(0)
     // A threshold is the inclusive lower bound of its own bucket.
-    expect(snrBucketIndex(-12, T)).toBe(1)
+    expect(snrBucketIndex(-9, T)).toBe(1)
     expect(snrBucketIndex(-5.01, T)).toBe(1)
     expect(snrBucketIndex(-5, T)).toBe(2)
     expect(snrBucketIndex(4.99, T)).toBe(2)
@@ -35,7 +35,7 @@ describe('snrBucketIndex', () => {
 
 describe('snrColor', () => {
   it('is monotone: a stronger link is never a darker step', () => {
-    const order = [-20, -12, -5, 5, 20]
+    const order = [-20, -9, -5, 5, 20]
     const light = order.map((v) => SNR_RAMP_LIGHT.indexOf(snrColor(v, T, false) as never))
     expect(light).toEqual([0, 1, 2, 3, 3])
     const dark = order.map((v) => SNR_RAMP_DARK.indexOf(snrColor(v, T, true) as never))

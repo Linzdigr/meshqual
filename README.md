@@ -165,7 +165,7 @@ It stays known to the server, which still needs it to read paths.
 Links longer than `maxHopKm` (default 300 km) are dropped as path-hash collisions
 between distant meshes.
 
-SNR colour thresholds (`-12 / -5 / 5` dB) are served by `/api/config`.
+SNR colour thresholds (`-9 / -5 / 5` dB) are served by `/api/config`.
 
 ## Altitude and line of sight
 
