@@ -268,6 +268,7 @@ function snr(v: number | null): string {
         :name="node.name"
         :node-type="node.nodeType"
         :position="mapPosition"
+        :observer="node.observer === true"
       />
     </template>
   </aside>

@@ -199,6 +199,8 @@ export interface NodeInfo {
   /** The default region's name, when relayd recognised it (see regionNames). */
   regionName?: string
   listenOnly?: boolean
+  /** Publishes to an MQTT broker: observer firmware, with MQTT settings. */
+  observer?: boolean
 }
 
 export interface NodeNeighbor extends NodeInfo {

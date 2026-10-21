@@ -45,6 +45,8 @@ type nodeInfo struct {
 	RegionName string `json:"regionName,omitempty"`
 	// ListenOnly: an observer never seen relaying (ingest.Node.ListenOnly).
 	ListenOnly bool `json:"listenOnly,omitempty"`
+	// Observer: publishes to an MQTT broker (ingest.Node.IsObserver).
+	Observer bool `json:"observer,omitempty"`
 }
 
 type neighbor struct {
@@ -164,5 +166,6 @@ func (s *Server) info(key string) nodeInfo {
 		RegionScope: n.RegionScope.String(),
 		RegionName:  n.RegionName,
 		ListenOnly:  s.listenOnly(n),
+		Observer:    n.IsObserver(),
 	}
 }

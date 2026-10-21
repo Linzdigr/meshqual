@@ -44,6 +44,12 @@ type Node struct {
 // convention their names say so ("FR35CESS-OBS-01", "Lorient Observer").
 var observerName = regexp.MustCompile(`(?i)obs`)
 
+// IsObserver: the node publishes what it hears to our brokers, or its name
+// says it is an observer (one feeding other brokers).
+func (n *Node) IsObserver() bool {
+	return n.Observer || observerName.MatchString(n.Name)
+}
+
 // ListenOnly reports an observer not seen relaying within window of now: it
 // publishes what it hears but does not forward, so its links carry no
 // traffic. The map draws it apart and leaves its links out. An observer named
@@ -51,7 +57,7 @@ var observerName = regexp.MustCompile(`(?i)obs`)
 // matters: adverts do not say whether repeating is on, so a node switched to
 // listen-only is only known by no longer showing up in paths.
 func (n *Node) ListenOnly(now time.Time, window time.Duration) bool {
-	if !n.Observer && !observerName.MatchString(n.Name) {
+	if !n.IsObserver() {
 		return false
 	}
 	return n.LastRelayed.IsZero() || now.Sub(n.LastRelayed) > window

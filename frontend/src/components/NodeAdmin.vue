@@ -12,6 +12,8 @@ const props = defineProps<{
   nodeType: string
   /** The node's position on the map, offered for its lat/lon settings. */
   position?: [number, number]
+  /** An observer: its MQTT settings are offered. */
+  observer?: boolean
 }>()
 
 const companion = useTraceStore()
@@ -287,7 +289,10 @@ const slotSection = computed<Section>(() => {
   }
 })
 
-const sections = computed(() => [...staticSections, slotSection.value])
+// MQTT settings only exist on observer firmware.
+const sections = computed(() =>
+  props.observer ? [...staticSections, slotSection.value] : staticSections.filter((s) => s.id !== 'mqtt'),
+)
 
 const values = reactive<Record<string, string>>({})
 const drafts = reactive<Record<string, string>>({})
