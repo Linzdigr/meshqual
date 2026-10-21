@@ -46,12 +46,20 @@ export interface CampaignItem extends PlannedTrace {
 const REPLY_TIMEOUT_MS = 5_000
 /** A trace path holds at most 64 bytes of hashes: 32 hops at 2 bytes. */
 export const MAX_TRACE_HOPS = 32
-/** Slack on top of the firmware's own round-trip estimate. */
-const TRACE_MARGIN_MS = 4_000
+/**
+ * How long to wait for a trace before calling it lost. The firmware's estimate
+ * (CMD_SEND_TRACE_PATH's reply) assumes the slowest relays, 6 airtimes a hop;
+ * traces usually come back in well under half of that. A trace that still
+ * comes back within the full estimate is taken late (see traceOnce).
+ */
+const TRACE_WAIT_SHARE = 0.4
+const TRACE_WAIT_MIN_MS = 2_500
+/** Late answers are still listened for up to the full estimate plus this. */
+const TRACE_LATE_MS = 4_000
 /** Repeaters answer a discovery after a random delay (a few seconds, widened x4). */
 export const DISCOVER_WINDOW_MS = 10_000
 /** Quiet time between two automatic traces: the channel is shared. */
-const CAMPAIGN_GAP_MS = 6_000
+const CAMPAIGN_GAP_MS = 2_000
 const TOKEN_KEY = 'meshqual.submitToken'
 
 function loadToken(): string {
@@ -235,9 +243,14 @@ export const useTraceStore = defineStore('trace', () => {
   /**
    * Sends one trace along `keys` and waits for it to come back. `animate`
    * gets the legs to show on the map: the first half when it leaves, the rest
-   * (with every leg's SNR) when it is back.
+   * (with every leg's SNR) when it is back. A trace given up on that comes
+   * back later anyway is passed to `onLate` instead.
    */
-  async function traceOnce(keys: string[], animate: (hops: TraceHop[]) => void): Promise<TraceResult> {
+  async function traceOnce(
+    keys: string[],
+    animate: (hops: TraceHop[]) => void,
+    onLate?: (r: TraceResult) => void,
+  ): Promise<TraceResult> {
     const t = transport.value
     const self = companion.value
     if (!t || !self) return { ok: false, reason: 'compagnon déconnecté', at: Date.now() }
@@ -256,25 +269,29 @@ export const useTraceStore = defineStore('trace', () => {
       if (!sent) return { ok: false, reason: 'trace refusée par le compagnon', at: Date.now() }
       animate(hops.slice(0, half))
 
-      const back = await waitFor((f) => parseTraceData(f)?.tag === tag, sent.timeoutMs + TRACE_MARGIN_MS)
-      const data = back && parseTraceData(back)
-      if (!data) {
-        const s = Math.round((sent.timeoutMs + TRACE_MARGIN_MS) / 1000)
-        return {
-          ok: false,
-          reason: connected.value
-            ? `pas de retour après ${s} s : un saut n'a pas relayé`
-            : 'compagnon déconnecté pendant la trace',
-          at: Date.now(),
-        }
+      const isOurs = (f: Uint8Array) => parseTraceData(f)?.tag === tag
+      const finish = (frame: Uint8Array): TraceResult => {
+        const data = parseTraceData(frame)!
+        // snrs[i] is what visit i+1 measured hearing visit i; the last leg is
+        // the companion hearing the final hop.
+        const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
+        animate(measured.slice(half))
+        void submit('trace', tag, measured)
+        return { ok: true, hops: measured, at: Date.now(), tag }
       }
-      // snrs[i] is what visit i+1 measured hearing visit i; the last leg is
-      // the companion hearing the final hop.
-      const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
-      animate(measured.slice(half))
-      const ok: TraceResult = { ok: true, hops: measured, at: Date.now(), tag }
-      void submit('trace', tag, measured)
-      return ok
+      const waitMs = Math.max(TRACE_WAIT_MIN_MS, sent.timeoutMs * TRACE_WAIT_SHARE)
+      const back = await waitFor(isOurs, waitMs)
+      if (back) return finish(back)
+      if (onLate && connected.value) {
+        void waitFor(isOurs, sent.timeoutMs + TRACE_LATE_MS - waitMs).then((f) => f && onLate(finish(f)))
+      }
+      return {
+        ok: false,
+        reason: connected.value
+          ? `pas de retour après ${(waitMs / 1000).toFixed(1).replace('.', ',').replace(',0', '')} s : un saut n'a pas relayé`
+          : 'compagnon déconnecté pendant la trace',
+        at: Date.now(),
+      }
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), at: Date.now() }
     }
@@ -293,14 +310,23 @@ export const useTraceStore = defineStore('trace', () => {
     stopRequested = false
     const keys = [...path.value]
     try {
+      let lateOk = false
       for (;;) {
         attempts.value++
-        const r = await traceOnce(keys, animate)
+        const attempt = attempts.value
+        const r = await traceOnce(keys, animate, (late) => {
+          // Back after all: it counts, and the retries can stop.
+          lateOk = true
+          result.value = late
+          resultAttempt.value = attempt
+          wake?.()
+        })
+        if (lateOk) break
         result.value = r
-        resultAttempt.value = attempts.value
+        resultAttempt.value = attempt
         if (result.value.ok || !retryUntilBack.value || stopRequested || !connected.value) break
         await pause(RETRY_GAP_MS)
-        if (stopRequested || !connected.value) break
+        if (lateOk || stopRequested || !connected.value) break
       }
     } finally {
       running.value = false
@@ -416,9 +442,15 @@ export const useTraceStore = defineStore('trace', () => {
         if (i > 0) await pause(CAMPAIGN_GAP_MS)
         if (stopRequested || !connected.value) break
         campaign.value[i]!.status = 'running'
-        const r = await traceOnce(campaign.value[i]!.path, animate)
-        campaign.value[i]!.result = r
-        campaign.value[i]!.status = r.ok ? 'ok' : 'ko'
+        const item = campaign.value[i]!
+        const r = await traceOnce(item.path, animate, (late) => {
+          item.result = late
+          item.status = 'ok'
+        })
+        if (item.status === 'running') {
+          item.result = r
+          item.status = r.ok ? 'ok' : 'ko'
+        }
       }
     } finally {
       campaignRunning.value = false
