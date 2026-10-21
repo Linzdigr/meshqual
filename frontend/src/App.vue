@@ -12,6 +12,7 @@ import NodePanel from '@/components/NodePanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import LayersControl from '@/components/LayersControl.vue'
 import TraceControl from '@/components/TraceControl.vue'
+import CompanionButton from '@/components/CompanionButton.vue'
 import { useTraceStore } from '@/stores/trace'
 import type { AltitudeRange } from '@/map/elevation'
 
@@ -263,6 +264,14 @@ watch(
   (routes) => meshMap.value?.setTraceFocus(routes),
 )
 
+// The trace tool goes with the companion: closed when it disconnects.
+watch(
+  () => trace.status,
+  (s) => {
+    if (s !== 'connected') trace.open = false
+  },
+)
+
 function runCampaign() {
   void trace.runCampaign((hops) => meshMap.value?.animateHops(hops))
 }
@@ -348,13 +357,15 @@ watch(
 
       <!-- The map's right-hand control column, under MapLibre's zoom buttons. -->
       <div class="map-tools">
-        <TraceControl @run="runTrace" @run-campaign="runCampaign" />
+        <TraceControl v-if="trace.status === 'connected'" @run="runTrace" @run-campaign="runCampaign" />
         <LayersControl
           :altitude="store.altitude"
           :range="altitudeRange"
           @toggle-altitude="store.altitude = !store.altitude"
         />
       </div>
+
+      <CompanionButton :compact="!!(store.selectedLinkId || store.selectedNodeKey)" />
 
       <div ref="legendEl" class="overlay left">
         <SnrLegend

@@ -9,8 +9,6 @@ const emit = defineEmits<{ run: []; runCampaign: [] }>()
 const trace = useTraceStore()
 const mesh = useMeshStore()
 
-const anySupport = trace.available.ble || trace.available.serial
-
 function nameOf(key: string): string {
   if (key === trace.companion?.publicKey) return trace.companion.name || 'compagnon'
   const n = mesh.nodes.features.find((f) => f.properties.key === key)
@@ -83,44 +81,8 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
         <button type="button" class="close" aria-label="Fermer" @click="trace.open = false">✕</button>
       </header>
 
-      <p v-if="!anySupport" class="note">
-        Ce navigateur ne peut pas parler à une radio. Utilisez Chrome ou Edge (ordinateur ou Android).
-      </p>
-
-      <template v-else-if="trace.status !== 'connected'">
-        <p class="note">
-          Connectez un compagnon MeshCore pour envoyer une trace le long d'un chemin choisi sur la carte.
-        </p>
-        <div class="row">
-          <button
-            v-if="trace.available.ble"
-            type="button"
-            class="btn"
-            :disabled="trace.status === 'connecting'"
-            @click="trace.connect('ble')"
-          >
-            Bluetooth
-          </button>
-          <button
-            v-if="trace.available.serial"
-            type="button"
-            class="btn"
-            :disabled="trace.status === 'connecting'"
-            @click="trace.connect('serial')"
-          >
-            USB
-          </button>
-          <span v-if="trace.status === 'connecting'" class="note">Connexion…</span>
-        </div>
-        <p v-if="trace.connectError" class="ko">Connexion impossible : {{ trace.connectError }}</p>
-      </template>
-
-      <template v-else>
-        <p class="who">
-          <span class="dot" aria-hidden="true" />
-          {{ trace.companion?.name || 'Compagnon' }}
-          <button type="button" class="link" @click="trace.disconnect()">Déconnecter</button>
-        </p>
+      <!-- Shown only once a companion is connected (CompanionButton). -->
+      <template v-if="trace.status === 'connected'">
 
         <!-- Observers hear part of a trace; the companion gets every hop. With the
              server's token, results go to the map as well. -->

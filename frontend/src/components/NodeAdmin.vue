@@ -582,6 +582,7 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
@@ -784,7 +785,7 @@ summary {
 .ro {
   font-size: 11.5px;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .slot {
@@ -799,6 +800,7 @@ summary {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .cli-log {
@@ -815,14 +817,21 @@ summary {
   font-size: 11.5px;
 }
 
+/* Flex items keep their content's width by default: a long reply (a key, a
+   status line with no spaces) would push past the panel instead of wrapping. */
+.cli-log li {
+  min-width: 0;
+}
+
 .cli-log .cmd {
   color: var(--accent);
+  overflow-wrap: anywhere;
 }
 
 .cli-log pre {
   margin: 2px 0 0;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   font: inherit;
   color: var(--text-primary);
 }
