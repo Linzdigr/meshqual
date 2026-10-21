@@ -21,7 +21,7 @@ const state = ref<'idle' | 'busy' | 'open' | 'error'>('idle')
 const error = ref<string | null>(null)
 const admin = ref(false)
 const viaFlood = ref(false)
-const tab = ref<'status' | 'settings'>('status')
+const tab = ref<'status' | 'settings' | 'cli'>('status')
 
 // A new node closes the session view; the companion keeps its own state.
 watch(
@@ -32,6 +32,8 @@ watch(
     stats.value = null
     Object.keys(values).forEach((k) => delete values[k])
     loaded.clear()
+    cliLog.value = []
+    mqttSlot.value = 1
   },
 )
 
@@ -134,15 +136,29 @@ interface Field {
   confirm?: (v: string) => string
   /** Shown, not editable. */
   readOnly?: boolean
+  /** Readable labels for the options. */
+  labels?: Record<string, string>
+  /** Write-only: the node only says whether it is set (passwords). */
+  secret?: boolean
 }
 
 interface Section {
   id: string
   title: string
   fields: Field[]
+  /** One-shot commands offered under the fields. */
+  actions?: { label: string; command: string; confirm?: string }[]
+  hint?: string
 }
 
-const sections: Section[] = [
+const ON_OFF = ['on', 'off']
+/** Firmware without the feature answers with an error or "??": show it as is. */
+const raw = (r: string) => r.replace(/^>\s?/, '').trim()
+
+/** Observer firmware: up to 6 broker slots, read one at a time. */
+const mqttSlot = ref(1)
+
+const staticSections: Section[] = [
   {
     id: 'identity',
     title: 'Identité',
@@ -199,8 +215,79 @@ const sections: Section[] = [
         parse: (r) => r.replace(/^\s*default scope is( now)?\s*/i, '').trim(),
       },
     ],
+    actions: [{ label: 'Envoyer une annonce maintenant', command: 'advert' }],
+  },
+  {
+    id: 'gps',
+    title: 'GPS',
+    hint: 'Firmwares compilés avec GPS seulement ; les autres répondent par une erreur.',
+    fields: [
+      { name: 'gps.status', label: 'État', get: 'gps', parse: raw, readOnly: true },
+      {
+        name: 'gps.enabled',
+        label: 'GPS',
+        options: ON_OFF,
+        get: 'gps',
+        parse: (r) => (/\bactive\b/.test(r) ? 'on' : /deactivated|^\s*>?\s*off/i.test(r) ? 'off' : raw(r)),
+        set: (v) => `gps ${v}`,
+      },
+      {
+        name: 'gps.advert',
+        label: 'Position annoncée',
+        options: ['none', 'share', 'prefs'],
+        labels: { none: 'aucune', share: 'GPS en direct', prefs: 'position enregistrée' },
+        get: 'gps advert',
+        parse: raw,
+        set: (v) => `gps advert ${v}`,
+      },
+    ],
+    actions: [
+      { label: 'Enregistrer la position GPS comme position du nœud', command: 'gps setloc' },
+      { label: "Régler l'horloge sur le GPS", command: 'gps sync' },
+    ],
+  },
+  {
+    id: 'mqtt',
+    title: 'MQTT',
+    hint: 'Firmware observateur seulement (MQTT bridge).',
+    fields: [
+      { name: 'mqtt.status', label: 'Connexions', readOnly: true, parse: raw },
+      { name: 'mqtt.stats', label: 'Statistiques', readOnly: true, parse: raw },
+      { name: 'link.status', label: 'Réseau', readOnly: true, parse: raw },
+      { name: 'wifi.ssid', label: 'Wi-Fi', readOnly: true, parse: raw },
+      {
+        name: 'mqtt.iata',
+        label: 'Code région (IATA)',
+        validate: (v) => (/^[A-Za-z0-9]{3}$/.test(v) && v.toUpperCase() !== 'XXX' ? null : '3 lettres ou chiffres, pas XXX'),
+      },
+      { name: 'mqtt.origin', label: 'Nom publié' },
+      { name: 'mqtt.packets', label: 'Publier les paquets', options: ON_OFF },
+      { name: 'mqtt.rx', label: 'Paquets reçus', options: ON_OFF },
+      { name: 'mqtt.tx', label: 'Paquets émis', options: ['on', 'off', 'advert'], labels: { advert: 'annonces seulement' } },
+      { name: 'mqtt.raw', label: 'Trames brutes', options: ON_OFF },
+    ],
   },
 ]
+
+const slotSection = computed<Section>(() => {
+  const n = mqttSlot.value
+  const k = (x: string) => `mqtt${n}.${x}`
+  return {
+    id: 'mqtt-slot',
+    title: 'MQTT – emplacements',
+    fields: [
+      { name: k('diag'), label: 'Diagnostic', readOnly: true, parse: raw },
+      { name: k('preset'), label: 'Broker (preset)', hint: "'none' désactive, 'custom' pour un broker à soi" },
+      { name: k('server'), label: 'Serveur' },
+      { name: k('port'), label: 'Port', validate: (v) => (/^\d+$/.test(v) && +v > 0 && +v < 65536 ? null : 'un port de 1 à 65535') },
+      { name: k('username'), label: 'Utilisateur' },
+      { name: k('password'), label: 'Mot de passe', secret: true, hint: 'en écriture seule ; le nœud dit seulement s’il est défini' },
+      { name: k('topic'), label: 'Topic', hint: 'vide = meshcore/{iata}/{device}/{type}' },
+    ],
+  }
+})
+
+const sections = computed(() => [...staticSections, slotSection.value])
 
 const values = reactive<Record<string, string>>({})
 const drafts = reactive<Record<string, string>>({})
@@ -209,21 +296,32 @@ const busyField = ref<string | null>(null)
 const loaded = new Set<string>()
 const loading = ref<string | null>(null)
 
-async function readField(f: Field) {
-  const raw = f.get ? await runCli(companion, props.nodeKey, f.get) : await getParam(companion, props.nodeKey, f.name)
-  values[f.name] = f.parse ? f.parse(raw) : raw
-  drafts[f.name] = values[f.name]!
+/** Several fields can share one command (gps): one read serves them all. */
+async function readField(f: Field, cache?: Map<string, string>) {
+  const cmd = f.get ?? `get ${f.name}`
+  let reply = cache?.get(cmd)
+  if (reply === undefined) {
+    reply = f.get ? await runCli(companion, props.nodeKey, cmd) : await getParam(companion, props.nodeKey, f.name)
+    cache?.set(cmd, reply)
+  }
+  values[f.name] = f.parse ? f.parse(reply) : reply
+  drafts[f.name] = f.secret ? '' : values[f.name]!
 }
 
 /** Loads a section's values the first time it is opened, one command at a time. */
 async function onToggle(s: Section, e: Event) {
   if (!(e.target as HTMLDetailsElement).open || loaded.has(s.id)) return
+  await loadSection(s)
+}
+
+async function loadSection(s: Section) {
   loaded.add(s.id)
+  const cache = new Map<string, string>()
   loading.value = s.id
   try {
     for (const f of s.fields) {
       try {
-        await readField(f)
+        await readField(f, cache)
       } catch (err) {
         results[f.name] = { ok: false, text: err instanceof Error ? err.message : String(err) }
       }
@@ -233,9 +331,18 @@ async function onToggle(s: Section, e: Event) {
   }
 }
 
+watch(mqttSlot, () => {
+  if (loaded.has('mqtt-slot')) void loadSection(slotSection.value)
+})
+
+const canApply = (f: Field) => {
+  const v = (drafts[f.name] ?? '').trim()
+  return busyField.value === null && values[f.name] !== undefined && v !== '' && (f.secret || v !== values[f.name])
+}
+
 async function apply(f: Field) {
   const v = (drafts[f.name] ?? '').trim()
-  if (!v || v === values[f.name] || f.readOnly) return
+  if (!canApply(f) || f.readOnly) return
   const bad = f.validate?.(v)
   if (bad) {
     results[f.name] = { ok: false, text: bad }
@@ -261,14 +368,49 @@ function useMapPosition() {
   drafts.lat = props.position[1].toFixed(5)
 }
 
-const actionReply = ref<string | null>(null)
-async function sendAdvert() {
-  actionReply.value = '…'
+const actionReplies = reactive<Record<string, string>>({})
+async function runAction(a: { command: string; confirm?: string }) {
+  if (a.confirm && !window.confirm(a.confirm)) return
+  actionReplies[a.command] = '…'
   try {
-    actionReply.value = (await runCli(companion, props.nodeKey, 'advert')).trim() || 'OK'
+    actionReplies[a.command] = (await runCli(companion, props.nodeKey, a.command)).trim() || 'OK'
   } catch (err) {
-    actionReply.value = err instanceof Error ? err.message : String(err)
+    actionReplies[a.command] = err instanceof Error ? err.message : String(err)
   }
+}
+
+// ---- CLI -----------------------------------------------------------------
+
+const cliInput = ref('')
+const cliBusy = ref(false)
+const cliLog = ref<{ command: string; reply: string; ok: boolean; at: number }[]>([])
+let historyIndex = -1
+
+async function sendCli() {
+  const command = cliInput.value.trim()
+  if (!command || cliBusy.value) return
+  cliBusy.value = true
+  historyIndex = -1
+  try {
+    const reply = await runCli(companion, props.nodeKey, command)
+    cliLog.value = [...cliLog.value, { command, reply: reply.trim() || 'OK', ok: true, at: Date.now() }]
+    cliInput.value = ''
+  } catch (err) {
+    cliLog.value = [
+      ...cliLog.value,
+      { command, reply: err instanceof Error ? err.message : String(err), ok: false, at: Date.now() },
+    ]
+  } finally {
+    cliBusy.value = false
+  }
+}
+
+/** Up and down walk back through the commands already sent. */
+function cliHistory(step: 1 | -1) {
+  const past = cliLog.value.map((l) => l.command)
+  if (!past.length) return
+  historyIndex = Math.max(-1, Math.min(past.length - 1, historyIndex + step))
+  cliInput.value = historyIndex < 0 ? '' : past[past.length - 1 - historyIndex]!
 }
 
 /** One-click fixes offered from the node panel's ⚠ (see NodePanel). */
@@ -322,6 +464,17 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
         >
           Réglages
         </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="tab === 'cli'"
+          :class="{ on: tab === 'cli' }"
+          :disabled="!admin"
+          :title="admin ? undefined : 'Réservé à une session administrateur'"
+          @click="tab = 'cli'"
+        >
+          CLI
+        </button>
       </div>
 
       <div v-if="tab === 'status'" class="status">
@@ -341,6 +494,29 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
         </div>
       </div>
 
+      <div v-else-if="tab === 'cli'" class="cli">
+        <ol v-if="cliLog.length" class="cli-log mono">
+          <li v-for="(l, i) in cliLog" :key="i">
+            <span class="cmd">› {{ l.command }}</span>
+            <pre :class="{ ko: !l.ok }">{{ l.reply }}</pre>
+          </li>
+        </ol>
+        <p v-else class="note">Commandes CLI du firmware, envoyées une à une à travers le mesh. ↑ et ↓ rappellent les précédentes.</p>
+        <form class="cli-form" @submit.prevent="sendCli">
+          <input
+            v-model="cliInput"
+            class="mono"
+            placeholder="ex. get repeat, neighbors, ver"
+            aria-label="Commande CLI"
+            autocomplete="off"
+            spellcheck="false"
+            @keydown.up.prevent="cliHistory(1)"
+            @keydown.down.prevent="cliHistory(-1)"
+          />
+          <button type="submit" class="btn" :disabled="cliBusy || !cliInput.trim()">{{ cliBusy ? '…' : 'Envoyer' }}</button>
+        </form>
+      </div>
+
       <div v-else class="settings">
         <p class="note">Chaque section lit ses valeurs à l'ouverture, une commande à la fois à travers le mesh.</p>
         <details v-for="s in sections" :key="s.id" @toggle="onToggle(s, $event)">
@@ -348,19 +524,34 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
             {{ s.title }}
             <span v-if="loading === s.id" class="note">lecture…</span>
           </summary>
+          <p v-if="s.hint" class="note">{{ s.hint }}</p>
+          <label v-if="s.id === 'mqtt-slot'" class="slot">
+            Emplacement
+            <select v-model.number="mqttSlot" :disabled="loading !== null">
+              <option v-for="n in 6" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </label>
           <div v-for="f in s.fields" :key="f.name" class="field">
             <label :for="`f-${f.name}`">{{ f.label }}</label>
             <select v-if="f.options" :id="`f-${f.name}`" v-model="drafts[f.name]" :disabled="values[f.name] === undefined">
-              <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+              <option v-for="o in f.options" :key="o" :value="o">{{ f.labels?.[o] ?? o }}</option>
             </select>
             <span v-else-if="f.readOnly" :id="`f-${f.name}`" class="mono ro">{{ values[f.name] ?? '…' }}</span>
-            <input v-else :id="`f-${f.name}`" v-model="drafts[f.name]" :disabled="values[f.name] === undefined" />
+            <input
+              v-else
+              :id="`f-${f.name}`"
+              v-model="drafts[f.name]"
+              :type="f.secret ? 'password' : 'text'"
+              :placeholder="f.secret ? values[f.name] : undefined"
+              autocomplete="off"
+              :disabled="values[f.name] === undefined"
+            />
             <span v-if="f.readOnly" />
             <button
               v-else
               type="button"
               class="btn small"
-              :disabled="busyField !== null || values[f.name] === undefined || (drafts[f.name] ?? '').trim() === values[f.name]"
+              :disabled="!canApply(f)"
               @click="apply(f)"
             >
               {{ busyField === f.name ? '…' : 'Appliquer' }}
@@ -371,9 +562,9 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
           <div v-if="s.id === 'identity' && position" class="row">
             <button type="button" class="link" @click="useMapPosition">Reprendre la position de la carte</button>
           </div>
-          <div v-if="s.id === 'adverts'" class="row">
-            <button type="button" class="btn small" @click="sendAdvert">Envoyer une annonce maintenant</button>
-            <span v-if="actionReply" class="note">{{ actionReply }}</span>
+          <div v-for="a in s.actions ?? []" :key="a.command" class="row">
+            <button type="button" class="btn small" :disabled="busyField !== null" @click="runAction(a)">{{ a.label }}</button>
+            <span v-if="actionReplies[a.command]" class="note">{{ actionReplies[a.command] }}</span>
           </div>
         </details>
       </div>
@@ -586,7 +777,62 @@ summary {
 }
 
 .ro {
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
   font-size: 12px;
+}
+
+.cli {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cli-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface-2);
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+
+.cli-log .cmd {
+  color: var(--accent);
+}
+
+.cli-log pre {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.cli-log pre.ko {
+  color: var(--status-critical);
+}
+
+.cli-form {
+  display: flex;
+  gap: 6px;
+}
+
+.cli-form input {
+  flex: 1;
 }
 
 .mono {
