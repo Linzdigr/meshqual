@@ -152,6 +152,35 @@ export const useTraceStore = defineStore('trace', () => {
     stopCampaign()
   }
 
+  /**
+   * Sends a command and waits for its immediate reply (matching frame), one
+   * command at a time: the companion answers in order with generic codes
+   * (SENT, OK, ERR), so two commands in flight could take each other's reply.
+   */
+  let chain: Promise<unknown> = Promise.resolve()
+  function exchange(
+    frame: Uint8Array,
+    match: (f: Uint8Array) => boolean,
+    timeoutMs = REPLY_TIMEOUT_MS,
+  ): Promise<Uint8Array | null> {
+    const run = async () => {
+      const t = transport.value
+      if (!t) return null
+      const reply = waitFor(match, timeoutMs)
+      await t.send(frame)
+      return reply
+    }
+    const p = chain.then(run, run)
+    chain = p.catch(() => {})
+    return p
+  }
+
+  /** Every frame from the companion, for answers that arrive later. */
+  function listen(l: (f: Uint8Array) => void): () => void {
+    listeners.add(l)
+    return () => listeners.delete(l)
+  }
+
   /** The next frame matching, or null after timeoutMs (or on disconnection). */
   function waitFor(match: (f: Uint8Array) => boolean, timeoutMs: number): Promise<Uint8Array | null> {
     return new Promise((resolve) => {
@@ -261,9 +290,7 @@ export const useTraceStore = defineStore('trace', () => {
       const half = Math.ceil(hops.length / 2)
 
       const tag = crypto.getRandomValues(new Uint32Array(1))[0]!
-      const ack = waitFor((f) => f[0] === RESP_ERR || parseSent(f)?.tag === tag, REPLY_TIMEOUT_MS)
-      await t.send(encodeTrace(tag, keys))
-      const sentFrame = await ack
+      const sentFrame = await exchange(encodeTrace(tag, keys), (f) => f[0] === RESP_ERR || parseSent(f)?.tag === tag)
       if (!sentFrame) return { ok: false, reason: 'le compagnon ne répond pas', at: Date.now() }
       const sent = parseSent(sentFrame)
       if (!sent) return { ok: false, reason: 'trace refusée par le compagnon', at: Date.now() }
@@ -353,9 +380,7 @@ export const useTraceStore = defineStore('trace', () => {
     }
     listeners.add(listen)
     try {
-      const ack = waitFor((f) => f[0] === RESP_OK || f[0] === RESP_ERR, REPLY_TIMEOUT_MS)
-      await t.send(encodeDiscover(tag))
-      const reply = await ack
+      const reply = await exchange(encodeDiscover(tag), (f) => f[0] === RESP_OK || f[0] === RESP_ERR)
       if (reply?.[0] === RESP_OK) await pause(DISCOVER_WINDOW_MS)
     } finally {
       listeners.delete(listen)
@@ -507,6 +532,9 @@ export const useTraceStore = defineStore('trace', () => {
   const currentCampaignPath = computed(() => campaign.value.find((c) => c.status === 'running')?.path ?? [])
 
   return {
+    exchange,
+    listen,
+    waitFor,
     available,
     status,
     companion,

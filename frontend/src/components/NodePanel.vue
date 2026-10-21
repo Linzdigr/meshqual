@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { BackboneLevel, NodeDetail, NodeNeighbor } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
 import { formatDuration } from '@/utils/duration'
 import ShareButton from './ShareButton.vue'
 import WarnIcon from './WarnIcon.vue'
+import NodeAdmin from './NodeAdmin.vue'
+import { useTraceStore } from '@/stores/trace'
 
 const props = defineProps<{
   nodeKey: string
@@ -43,6 +45,30 @@ function snrColor(snr: number | null): string {
 }
 
 const node = computed(() => props.detail?.node)
+
+/**
+ * With a companion connected, the owner of a repeater or room server can open
+ * a session on it from here (NodeAdmin) and fix what the ⚠ flags in one click.
+ */
+const companion = useTraceStore()
+const manageable = computed(
+  () => companion.status === 'connected' && (node.value?.nodeType === 'repeater' || node.value?.nodeType === 'room'),
+)
+const nodeAdmin = ref<InstanceType<typeof NodeAdmin> | null>(null)
+const canFix = computed(() => nodeAdmin.value?.isAdmin === true)
+const fixReply = ref<Record<string, string>>({})
+const regionDraft = ref('')
+async function fix(id: string, command: string) {
+  fixReply.value = { ...fixReply.value, [id]: '…' }
+  try {
+    fixReply.value = { ...fixReply.value, [id]: (await nodeAdmin.value!.fix(command)) || 'OK' }
+  } catch (e) {
+    fixReply.value = { ...fixReply.value, [id]: e instanceof Error ? e.message : String(e) }
+  }
+}
+const mapPosition = computed<[number, number] | undefined>(() =>
+  node.value?.lat != null && node.value?.lon != null ? [node.value.lon, node.value.lat] : undefined,
+)
 /** An observer never seen relaying: its "neighbours" are what it hears, not links of the mesh. */
 const listenOnly = computed(() => node.value?.listenOnly === true)
 const name = computed(() => node.value?.name || props.nodeKey.slice(0, 8))
@@ -125,6 +151,10 @@ function snr(v: number | null): string {
                 ? 'lu dans ses annonces relayées'
                 : 'aucune annonce relayée reçue'
           }}</span>
+          <span v-if="canFix && node?.pathHashSize === 1" class="fix">
+            <button type="button" class="btn-fix" @click="fix('hash', 'set path.hash.mode 1')">Passer en 2 octets</button>
+            <small v-if="fixReply.hash">{{ fixReply.hash }}</small>
+          </span>
         </div>
         <div class="tile">
           <span class="t-label">Région par défaut</span>
@@ -147,6 +177,15 @@ function snr(v: number | null): string {
                   ? 'lue dans ses annonces'
                   : 'aucune annonce relayée reçue'
           }}</span>
+          <form
+            v-if="canFix && node?.regionScope === 'none'"
+            class="fix"
+            @submit.prevent="regionDraft.trim() && fix('region', `region default ${regionDraft.trim()}`)"
+          >
+            <input v-model="regionDraft" placeholder="ex. fr-bre" aria-label="Région par défaut" />
+            <button type="submit" class="btn-fix" :disabled="!regionDraft.trim()">Définir</button>
+            <small v-if="fixReply.region">{{ fixReply.region }}</small>
+          </form>
         </div>
         <div class="tile">
           <span class="t-label">Clé</span>
@@ -221,11 +260,57 @@ function snr(v: number | null): string {
           </tbody>
         </table>
       </section>
+
+      <NodeAdmin
+        v-if="manageable && node"
+        ref="nodeAdmin"
+        :node-key="nodeKey"
+        :name="node.name"
+        :node-type="node.nodeType"
+        :position="mapPosition"
+      />
     </template>
   </aside>
 </template>
 
 <style scoped>
+.fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.fix input {
+  width: 80px;
+  padding: 1px 4px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.btn-fix {
+  padding: 1px 6px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-fix:disabled {
+  opacity: 0.45;
+}
+
+.fix small {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
 .listen {
   margin: 0;
   padding: 8px 10px;
