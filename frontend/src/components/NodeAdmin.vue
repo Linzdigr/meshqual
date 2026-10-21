@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { RESP_ERR } from '@/companion/protocol'
 import { encodeLogin, encodeLogout, parseLoginResult, parseRequestSent, samePrefix, type NodeStats } from '@/companion/remote'
 import { ensureContact, getParam, requestStatus, runCli } from '@/companion/nodeCli'
@@ -389,23 +389,38 @@ async function runAction(a: { command: string; confirm?: string }) {
 const cliInput = ref('')
 const cliBusy = ref(false)
 const cliLog = ref<{ command: string; reply: string; ok: boolean; at: number }[]>([])
+/** The command on its way, shown at the end of the log until it is answered. */
+const cliPending = ref<string | null>(null)
+const cliLogEl = ref<HTMLElement | null>(null)
 let historyIndex = -1
+
+// Like a terminal: the latest output stays in view.
+watch(
+  () => [cliLog.value.length, cliPending.value],
+  async () => {
+    await nextTick()
+    const el = cliLogEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  },
+)
 
 async function sendCli() {
   const command = cliInput.value.trim()
   if (!command || cliBusy.value) return
   cliBusy.value = true
+  cliPending.value = command
+  cliInput.value = ''
   historyIndex = -1
   try {
     const reply = await runCli(companion, props.nodeKey, command)
     cliLog.value = [...cliLog.value, { command, reply: reply.trim() || 'OK', ok: true, at: Date.now() }]
-    cliInput.value = ''
   } catch (err) {
     cliLog.value = [
       ...cliLog.value,
       { command, reply: err instanceof Error ? err.message : String(err), ok: false, at: Date.now() },
     ]
   } finally {
+    cliPending.value = null
     cliBusy.value = false
   }
 }
@@ -500,10 +515,14 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
       </div>
 
       <div v-else-if="tab === 'cli'" class="cli">
-        <ol v-if="cliLog.length" class="cli-log mono">
+        <ol v-if="cliLog.length || cliPending" ref="cliLogEl" class="cli-log mono">
           <li v-for="(l, i) in cliLog" :key="i">
             <span class="cmd">› {{ l.command }}</span>
             <pre :class="{ ko: !l.ok }">{{ l.reply }}</pre>
+          </li>
+          <li v-if="cliPending">
+            <span class="cmd">› {{ cliPending }}</span>
+            <pre class="waiting">en attente de la réponse…</pre>
           </li>
         </ol>
         <p v-else class="note">Commandes CLI du firmware, envoyées une à une à travers le mesh. ↑ et ↓ rappellent les précédentes.</p>
@@ -812,9 +831,12 @@ summary {
   padding: 8px;
   overflow-y: auto;
   list-style: none;
-  background: var(--surface-2);
+  /* A terminal: black whatever the theme, so its colours are fixed too. */
+  background: #000;
   border-radius: 4px;
   font-size: 11.5px;
+  color: #e6e6e6;
+  color-scheme: dark; /* dark scrollbar */
 }
 
 /* Flex items keep their content's width by default: a long reply (a key, a
@@ -824,7 +846,7 @@ summary {
 }
 
 .cli-log .cmd {
-  color: var(--accent);
+  color: #7db7ff;
   overflow-wrap: anywhere;
 }
 
@@ -833,11 +855,15 @@ summary {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
-  color: var(--text-primary);
+  color: #e6e6e6;
+}
+
+.cli-log pre.waiting {
+  color: #8a8a8a;
 }
 
 .cli-log pre.ko {
-  color: var(--status-critical);
+  color: #ff7b7b;
 }
 
 .cli-form {

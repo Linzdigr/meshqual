@@ -223,7 +223,9 @@ function snr(v: number | null): string {
           }}
         </h3>
         <p v-if="neighbors.length === 0" class="empty">Aucun lien actif pour ce nœud.</p>
-        <table v-else class="neighbors">
+        <!-- Wider than the panel with long names: it scrolls on its own, not the panel. -->
+        <div v-else class="table-scroll">
+        <table class="neighbors">
           <thead>
             <tr>
               <th>Nœud</th>
@@ -259,6 +261,7 @@ function snr(v: number | null): string {
             </tr>
           </tbody>
         </table>
+        </div>
       </section>
 
       <NodeAdmin
@@ -340,6 +343,7 @@ tr.static {
   gap: 14px;
   width: 440px;
   max-height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 14px;
   background: var(--surface-1);
@@ -509,6 +513,14 @@ h3 {
   font-size: 10.5px;
   line-height: 1.4;
   color: var(--text-muted);
+}
+
+.panel > * {
+  min-width: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
 }
 
 .neighbors {
