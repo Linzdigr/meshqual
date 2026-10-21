@@ -128,6 +128,12 @@ interface Field {
   get?: string
   set?: (v: string) => string
   parse?: (reply: string) => string
+  /** An error message for a bad value, or null. */
+  validate?: (v: string) => string | null
+  /** Asked before applying: the change can cut the node off or break rules. */
+  confirm?: (v: string) => string
+  /** Shown, not editable. */
+  readOnly?: boolean
 }
 
 interface Section {
@@ -157,6 +163,25 @@ const sections: Section[] = [
       { name: 'direct.txdelay', label: 'Délai émission direct', hint: 'facteur' },
       { name: 'rxdelay', label: 'Délai réception', hint: 'base' },
       { name: 'loop.detect', label: 'Détection de boucles', options: ['off', 'minimal', 'moderate', 'strict'] },
+    ],
+  },
+  {
+    id: 'radio',
+    title: 'Radio',
+    fields: [
+      {
+        name: 'tx',
+        label: "Puissance d'émission",
+        hint: "dBm; plafonnée selon modèle (22 dBm sur un SX1262)",
+        validate: (v) => (/^-?\d+$/.test(v) && +v >= -9 && +v <= 30 ? null : 'un entier entre -9 et 30 dBm'),
+        confirm: (v) => `Régler la puissance d'émission à ${v} dBm ? Une puissance trop basse peut couper le nœud du mesh.`,
+      },
+      {
+        name: 'radio',
+        label: 'Paramètres radio',
+        hint: 'fréquence, largeur de bande, SF, CR : modifiables seulement en local (USB)',
+        readOnly: true,
+      },
     ],
   },
   {
@@ -210,7 +235,13 @@ async function onToggle(s: Section, e: Event) {
 
 async function apply(f: Field) {
   const v = (drafts[f.name] ?? '').trim()
-  if (!v || v === values[f.name]) return
+  if (!v || v === values[f.name] || f.readOnly) return
+  const bad = f.validate?.(v)
+  if (bad) {
+    results[f.name] = { ok: false, text: bad }
+    return
+  }
+  if (f.confirm && !window.confirm(f.confirm(v))) return
   busyField.value = f.name
   try {
     const reply = await runCli(companion, props.nodeKey, f.set ? f.set(v) : `set ${f.name} ${v}`)
@@ -322,8 +353,11 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
             <select v-if="f.options" :id="`f-${f.name}`" v-model="drafts[f.name]" :disabled="values[f.name] === undefined">
               <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
             </select>
+            <span v-else-if="f.readOnly" :id="`f-${f.name}`" class="mono ro">{{ values[f.name] ?? '…' }}</span>
             <input v-else :id="`f-${f.name}`" v-model="drafts[f.name]" :disabled="values[f.name] === undefined" />
+            <span v-if="f.readOnly" />
             <button
+              v-else
               type="button"
               class="btn small"
               :disabled="busyField !== null || values[f.name] === undefined || (drafts[f.name] ?? '').trim() === values[f.name]"
@@ -549,6 +583,10 @@ summary {
 
 .reply {
   color: var(--status-good);
+}
+
+.ro {
+  font-size: 12px;
 }
 
 .mono {
