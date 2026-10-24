@@ -4,8 +4,8 @@ import type { ExpressionSpecification } from 'maplibre-gl'
  * The "Rôle de pont" layer: how much the observed mesh depends on each node to
  * stay connected (api topo analysis), shown by the node's size and fill. One
  * warm hue, ordered by lightness, so it stays readable without colour vision
- * and never mixes with the links' blue SNR ramp. The most important nodes are
- * the most visible: darker on the light map, brighter on the dark one.
+ * and never mixes with the links' blue SNR ramp. The same oranges in both
+ * themes: the darker, the more the mesh depends on the node.
  */
 export type BridgeLevel = 'low' | 'medium' | 'high' | 'critical'
 
@@ -22,12 +22,9 @@ const FILL_LIGHT: Record<BridgeLevel, string> = {
   high: '#f97316',
   critical: '#9a3412',
 }
-const FILL_DARK: Record<BridgeLevel, string> = {
-  low: '#2a2a28',
-  medium: '#9a3412',
-  high: '#ea580c',
-  critical: '#fed7aa',
-}
+// Same oranges on the dark map, so a level reads the same in both themes;
+// only "low" keeps the dark map's usual node fill.
+const FILL_DARK: Record<BridgeLevel, string> = { ...FILL_LIGHT, low: '#2a2a28' }
 
 export const bridgeFill = (level: BridgeLevel, dark: boolean) => (dark ? FILL_DARK : FILL_LIGHT)[level]
 
