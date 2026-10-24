@@ -59,7 +59,7 @@ onUnmounted(() => {
           Ce navigateur ne peut pas parler à une radio. Utilisez Chrome ou Edge (ordinateur ou Android).
         </p>
         <template v-else>
-          <p class="note">Reliez un compagnon MeshCore pour lancer des traces et gérer vos nœuds.</p>
+          <p class="note">Reliez un compagnon MeshCore pour lancer des traces et gérer vos nœuds. NOTE: il est recommandé d'utiliser Chrome ou Edge et vous deverez certainement autoriser l'API Bluetooth Web dans: chrome://flags/#chrome-web-bluetooth-api.</p>
           <div class="row">
             <button
               v-if="companion.available.ble"
