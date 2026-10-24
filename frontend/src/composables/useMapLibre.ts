@@ -1574,8 +1574,6 @@ export function useMapLibre(opts: UseMapOptions) {
       'circle-color',
       on ? bridgeFillExpression(opts.dark.value) : opts.dark.value ? SURFACE_DARK : SURFACE_LIGHT,
     )
-    // The ⚠ is orange too, and would compete with the layer's warm fills.
-    map.setLayoutProperty(LAYER_NODE_WARN, 'visibility', on ? 'none' : 'visible')
     applyFocus()
   }
 
