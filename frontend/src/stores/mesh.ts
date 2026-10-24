@@ -185,13 +185,25 @@ export const useMeshStore = defineStore('mesh', () => {
     () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
   )
 
-  const selectedLink = computed(() => {
-    if (!selectedLinkId.value) return null
-    return (
-      links.value.features.find((f) => f.properties.linkId === selectedLinkId.value)?.properties ??
-      null
-    )
-  })
+  /**
+   * The selected link with every property (fields=full): the map's own
+   * collection only carries what the map reads. Reloaded when the live stream
+   * reports the link changed.
+   */
+  const selectedFull = shallowRef<LinkProperties | null>(null)
+  const selectedLink = computed(() =>
+    selectedLinkId.value && selectedFull.value?.linkId === selectedLinkId.value ? selectedFull.value : null,
+  )
+
+  async function loadSelectedFull(linkId: string) {
+    try {
+      const r = await api.links({ ids: [linkId], full: true })
+      if (selectedLinkId.value !== linkId) return
+      selectedFull.value = r.features?.[0]?.properties ?? null
+    } catch {
+      // The panel keeps what it had; the next update retries.
+    }
+  }
 
   /** Links the server could not draw because an endpoint never advertised a position. */
   const undrawable = computed(() => meta.value?.withoutPosition ?? 0)
@@ -223,6 +235,7 @@ export const useMeshStore = defineStore('mesh', () => {
       ])
       links.value = { ...l, features: l.features ?? [] }
       nodes.value = { ...n, features: n.features ?? [] }
+      if (selectedLinkId.value) void loadSelectedFull(selectedLinkId.value)
       meta.value = l.meta ?? null
       lastRefresh.value = new Date()
       error.value = null
@@ -230,6 +243,31 @@ export const useMeshStore = defineStore('mesh', () => {
       if (!isAbort(e)) error.value = describe(e)
     } finally {
       if (linksAbort === ac) loading.value = false
+    }
+  }
+
+  /**
+   * Refetches only the links the live stream reported changed and merges them
+   * in. Unchanged links keep their very objects, which is how the map tells
+   * what to redraw (useMapLibre setLinks). Links gone from the answer (evicted,
+   * filtered, out of view) are dropped.
+   */
+  async function patchLinks(ids: string[]) {
+    if (!ids.length) return
+    if (!bbox.value || !links.value.features.length) return refreshLinks()
+    try {
+      const r = await api.links({ bbox: bbox.value, kinds: kinds.value, minSamples: minSamples.value, ids })
+      const fresh = new Map((r.features ?? []).map((f) => [f.properties.linkId, f]))
+      const asked = new Set(ids)
+      const kept = links.value.features
+        .filter((f) => !asked.has(f.properties.linkId) || fresh.has(f.properties.linkId))
+        .map((f) => fresh.get(f.properties.linkId) ?? f)
+      const known = new Set(kept.map((f) => f.properties.linkId))
+      const added = [...fresh.values()].filter((f) => !known.has(f.properties.linkId))
+      links.value = { ...links.value, features: [...kept, ...added] }
+      if (selectedLinkId.value && asked.has(selectedLinkId.value)) void loadSelectedFull(selectedLinkId.value)
+    } catch (e) {
+      if (!isAbort(e)) error.value = describe(e)
     }
   }
 
@@ -300,6 +338,8 @@ export const useMeshStore = defineStore('mesh', () => {
 
   async function selectLink(linkId: string | null) {
     selectedLinkId.value = linkId
+    selectedFull.value = null
+    if (linkId) void loadSelectedFull(linkId)
     profile.value = null
     if (linkId) void loadProfile(linkId)
     if (linkId) {
@@ -366,6 +406,7 @@ export const useMeshStore = defineStore('mesh', () => {
     selectedNodeKey,
     nodeDetail,
     selectedLink,
+    patchLinks,
     frames,
     history,
     profile,

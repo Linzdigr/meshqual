@@ -57,7 +57,7 @@ func TestCompanionMeasurements(t *testing.T) {
 	found := false
 	for _, ft := range fc.Features {
 		p := ft.Properties
-		if (p["aKey"] == f.a && p["bKey"] == f.b) || (p["aKey"] == f.b && p["bKey"] == f.a) {
+		if ft.ID == f.a+":"+f.b || ft.ID == f.b+":"+f.a {
 			found = true
 			if p["kind"] != "trace" || p["snrBasis"] != "few" {
 				t.Errorf("link = kind %v basis %v, want a trace measured both ways", p["kind"], p["snrBasis"])

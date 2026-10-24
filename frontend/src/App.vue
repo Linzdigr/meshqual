@@ -210,18 +210,26 @@ watch(
  */
 let debounce: number | undefined
 let fallback: number | undefined
+/** Links reported changed since the last fetch. */
+const changedIds = new Set<string>()
+/** Past this many, one full refresh is cheaper than a patch. */
+const PATCH_MAX = 300
 
-function scheduleRefresh() {
+function scheduleRefresh(ids: string[] = []) {
+  ids.forEach((id) => changedIds.add(id))
   if (debounce !== undefined) return
   debounce = window.setTimeout(() => {
     debounce = undefined
-    void store.refreshLinks()
+    const batch = [...changedIds]
+    changedIds.clear()
+    // Only the reported links: a few KB instead of the whole view.
+    void (batch.length && batch.length <= PATCH_MAX ? store.patchLinks(batch) : store.refreshLinks())
   }, Math.max(400, store.pushIntervalMs / 2))
 }
 
 const stream = useLiveStream({
   linkId: selectedRef,
-  onLinksChanged: () => scheduleRefresh(),
+  onLinksChanged: (ids) => scheduleRefresh(ids),
   onFrame: (linkId, frame) => store.pushFrame(linkId, frame),
 })
 
@@ -296,10 +304,13 @@ onMounted(async () => {
   await openDeepLink()
 
   // Health every 15s: it drives the source chips, not the map.
+  let ticks = 0
   fallback = window.setInterval(() => {
     void store.refreshHealth()
     // If the stream is down, fall back to polling so the map does not go stale.
-    if (!stream.connected.value) void store.refreshLinks()
+    // Otherwise a full refresh every minute: patches only bring the links the
+    // stream named, so the others' ages, and the nodes, drift until then.
+    if (!stream.connected.value || ++ticks % 4 === 0) void store.refreshLinks()
   }, 15_000)
 })
 

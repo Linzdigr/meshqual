@@ -1001,20 +1001,34 @@ export function useMapLibre(opts: UseMapOptions) {
     }
   }
 
+  /** The links last handed to the map, by id, to send only what changed. */
+  let shownLinks = new Map<string, Feature<LinkProperties>>()
+
   function setLinks(fc: FeatureCollection<LinkProperties>) {
     pendingLinks = fc
     if (!map || !ready) return
-    const src = map.getSource(LINKS_SOURCE)
-    if (src && 'setData' in src) {
-      // One setData call replaces the whole layer. This is why the API returns
-      // GeoJSON: there is no transform step between fetch and render.
-      ;(src as maplibregl.GeoJSONSource).setData(fc as never)
+    const next = new Map(fc.features.map((f) => [f.properties.linkId, f]))
+    // The store keeps an unchanged link's object as it was (stores/mesh
+    // patchLinks): a new object is a new or updated link.
+    const changed = fc.features.filter((f) => shownLinks.get(f.properties.linkId) !== f)
+    const removed = [...shownLinks.keys()].filter((id) => !next.has(id))
+    const src = map.getSource(LINKS_SOURCE) as maplibregl.GeoJSONSource | undefined
+    const incremental = shownLinks.size > 0 && changed.length + removed.length < fc.features.length / 4
+    if (src) {
+      if (incremental) {
+        // A live update touches a few links: re-tiling all of them on every
+        // event is what costs most on a phone.
+        if (changed.length || removed.length) src.updateData({ add: changed as never, remove: removed })
+      } else {
+        // One setData call replaces the whole layer. This is why the API returns
+        // GeoJSON: there is no transform step between fetch and render.
+        src.setData(fc as never)
+      }
     }
+    shownLinks = next
     const threshold = opts.asymThreshold.value
-    const lanes = map.getSource(LANES_SOURCE)
-    if (lanes && 'setData' in lanes) {
-      ;(lanes as maplibregl.GeoJSONSource).setData(buildLanes(fc, threshold) as never)
-    }
+    // Lanes are drawn only in the "Par sens" view: built when it shows.
+    if (opts.mode.value === 'asymmetry') syncLanes()
     emphasizedIds = fc.features
       .filter((f) => isAsymmetric(f.properties, threshold))
       .map((f) => f.properties.linkId)
@@ -1025,7 +1039,16 @@ export function useMapLibre(opts: UseMapOptions) {
       computeFocus()
       applyFocus()
     }
-    trackActive(fc)
+    // An unchanged link keeps the age it was fetched with: only new or updated
+    // links can start an animation.
+    trackActive(incremental ? changed : fc.features, next)
+  }
+
+  function syncLanes() {
+    const lanes = map?.getSource(LANES_SOURCE)
+    if (pendingLinks && lanes && 'setData' in lanes) {
+      ;(lanes as maplibregl.GeoJSONSource).setData(buildLanes(pendingLinks, opts.asymThreshold.value) as never)
+    }
   }
 
   /**
@@ -1033,12 +1056,10 @@ export function useMapLibre(opts: UseMapOptions) {
    * the server-computed `ageSec` and the local clock at fetch time, so a skewed
    * client clock cannot keep a link animated or cut it short.
    */
-  function trackActive(fc: FeatureCollection<LinkProperties>) {
+  function trackActive(features: Feature<LinkProperties>[], present: Map<string, unknown>) {
     const now = Date.now()
-    const present = new Set<string>()
-    for (const f of fc.features) {
+    for (const f of features) {
       const p = f.properties
-      present.add(p.linkId)
       const remaining = ACTIVE_MS - p.ageSec * 1000
       if (remaining <= 0 || f.geometry.type !== 'LineString') continue
       const coords = f.geometry.coordinates
@@ -1094,6 +1115,7 @@ export function useMapLibre(opts: UseMapOptions) {
     const show = (id: string, on: boolean) => m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
     m.setFilter(LAYER_NODE_WARN, issueFilter(opts.issues.value))
     show(LAYER_MEASURED, !asym)
+    if (asym) syncLanes()
     show(LAYER_LANES, asym)
     show(LAYER_LANES_MISSING, asym)
     show(LAYER_LANE_ARROWS, asym)

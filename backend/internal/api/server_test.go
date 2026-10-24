@@ -141,7 +141,7 @@ func TestLinksGeoJSONContract(t *testing.T) {
 	f.feed(t, floodFrame([]string{f.a, f.b}, 2), f.obs, ptrF(8.25), ptrI(-95))
 	f.feed(t, floodFrame([]string{f.a, f.b}, 2), f.obs, ptrF(6.00), ptrI(-99))
 
-	res, body := f.get(t, "/api/links")
+	res, body := f.get(t, "/api/links?fields=full")
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", res.StatusCode, body)
 	}
@@ -401,6 +401,47 @@ func TestTooLongLinksLeaveTheMap(t *testing.T) {
 	f.resolver.Upsert(ingest.Node{Key: far, Latitude: ptrF(45.76), Longitude: ptrF(4.83)}) // Lyon, ~600 km
 	if _, body := f.get(t, "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85"); strings.Contains(string(body), far) {
 		t.Errorf("a 600 km hop is on the map: %s", body)
+	}
+}
+
+// The map gets the properties it reads; fields=full adds the panel's. ids
+// narrows the answer to the links the live stream reported.
+func TestLinksSlimAndByID(t *testing.T) {
+	f := newFixture(t)
+	f.feed(t, floodFrame([]string{f.a, f.b}, 2), f.obs, ptrF(8.25), ptrI(-95))
+	all := "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85"
+	features := func(url string) []Feature {
+		_, body := f.get(t, url)
+		var fc FeatureCollection
+		if err := json.Unmarshal(body, &fc); err != nil {
+			t.Fatal(err)
+		}
+		return fc.Features
+	}
+	slim := features(all)
+	if len(slim) != 2 {
+		t.Fatalf("links = %d, want 2", len(slim))
+	}
+	for _, ft := range slim {
+		if _, ok := ft.Properties["distKm"]; ok {
+			t.Errorf("slim link carries distKm: %v", ft.Properties)
+		}
+		for k := range ft.Properties {
+			if !mapLinkProps[k] {
+				t.Errorf("slim link carries %q", k)
+			}
+		}
+	}
+	if _, ok := slim[0].Properties["linkId"]; ok {
+		t.Error("slim link repeats its id in linkId")
+	}
+	id := slim[0].ID
+	one := features(all + "&ids=" + id + "&fields=full")
+	if len(one) != 1 || one[0].Properties["linkId"] != id {
+		t.Fatalf("ids=%s gave %v", id, one)
+	}
+	if _, ok := one[0].Properties["distKm"]; !ok {
+		t.Error("fields=full lacks distKm")
 	}
 }
 

@@ -118,12 +118,26 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ids: just these links (the map patches what the live stream reported).
+	var onlyIDs map[string]bool
+	if raw := r.URL.Query().Get("ids"); raw != "" {
+		onlyIDs = map[string]bool{}
+		for _, id := range strings.Split(raw, ",") {
+			onlyIDs[strings.ToUpper(strings.TrimSpace(id))] = true
+		}
+	}
+	// fields=full: every property, for the link panel; otherwise what the map uses.
+	full := r.URL.Query().Get("fields") == "full"
+
 	links := s.mapLinks()
 	fc := newCollection(len(links))
 	noPos := 0
 
 	for _, l := range links {
 		if l.Samples < minSamples {
+			continue
+		}
+		if onlyIDs != nil && !onlyIDs[l.ID.String()] {
 			continue
 		}
 		if len(wantKinds) > 0 {
@@ -209,6 +223,13 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 		}
 		if l.RSSIMeanBA != nil {
 			props["rssiMeanBA"] = round2(*l.RSSIMeanBA)
+		}
+		if !full {
+			for k := range props {
+				if !mapLinkProps[k] {
+					delete(props, k)
+				}
+			}
 		}
 		fc.Features = append(fc.Features, lineFeature(l.ID.String(), pa, pb, props))
 	}
@@ -308,6 +329,21 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		"linkId": id.String(), "window": window.String(), "bucket": bucket.String(),
 		"buckets": buckets,
 	})
+}
+
+// mapLinkProps are the link properties the map itself reads (colours, lanes,
+// filters, animation, trace planning). The rest is for the link panel, which
+// asks for one link with fields=full. A third of the size on a busy mesh.
+//
+// linkId, aKey and bKey are left out too: the feature's id is the link id,
+// "<aKey>:<bKey>", and the client splits it (api/client.ts). They were half
+// of each link's bytes.
+var mapLinkProps = map[string]bool{
+	"aName": true, "bName": true, "aType": true, "bType": true,
+	"kind": true, "weight": true, "samples": true, "ageSec": true, "lastForward": true, "lastSnr": true,
+	"measureAgeSec": true, "snrQuality": true, "snrBasis": true, "snrMedian": true,
+	"snrMedianAB": true, "snrMedianBA": true, "snrCountAB": true, "snrCountBA": true,
+	"snrDelta": true, "rssiMeanAB": true, "rssiMeanBA": true,
 }
 
 func toInt(v any) int {

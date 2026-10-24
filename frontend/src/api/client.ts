@@ -52,6 +52,10 @@ export interface LinksQuery {
   kinds?: LinkKind[]
   minSamples?: number
   limit?: number
+  /** Only these links (linkIds). */
+  ids?: string[]
+  /** Every property, as the link panel needs; otherwise what the map reads. */
+  full?: boolean
 }
 
 /** One hop a companion measured, sent to POST /api/measurements. */
@@ -64,6 +68,22 @@ export interface MeasuredHop {
 export interface MeasurementsReply {
   accepted: number
   skipped: Record<string, number>
+}
+
+/**
+ * The map's slim links carry their id only as the feature id, "<aKey>:<bKey>"
+ * (api/handlers.go mapLinkProps): put linkId, aKey and bKey back.
+ */
+function withLinkKeys(fc: FeatureCollection<LinkProperties>): FeatureCollection<LinkProperties> {
+  for (const f of fc.features ?? []) {
+    const id = (f as { id?: string }).id ?? f.properties.linkId
+    if (!id) continue
+    const [a, b] = id.split(':')
+    f.properties.linkId ??= id
+    f.properties.aKey ??= a!
+    f.properties.bKey ??= b!
+  }
+  return fc
 }
 
 export const api = {
@@ -99,9 +119,11 @@ export const api = {
     if (q.kinds?.length) params.set('kind', q.kinds.join(','))
     if (q.minSamples) params.set('minSamples', String(q.minSamples))
     if (q.limit) params.set('limit', String(q.limit))
+    if (q.ids?.length) params.set('ids', q.ids.join(','))
+    if (q.full) params.set('fields', 'full')
     const bb = bboxParam(q.bbox ?? null)
     const qs = [bb, params.toString()].filter(Boolean).join('&')
-    return get<FeatureCollection<LinkProperties>>(`/api/links?${qs}`, signal)
+    return get<FeatureCollection<LinkProperties>>(`/api/links?${qs}`, signal).then(withLinkKeys)
   },
 
   link: (linkId: string, signal?: AbortSignal) => {
