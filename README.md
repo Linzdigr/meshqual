@@ -163,7 +163,10 @@ is only known from paths.
 It stays known to the server, which still needs it to read paths.
 
 Links longer than `maxHopKm` (default 300 km) are dropped as path-hash collisions
-between distant meshes.
+between distant meshes, at ingest and again when served (an end may get its
+position only later). Path hashes narrower than `minPathHashBytes` (default 2)
+are not attributed at all: with many known nodes, a 1-byte hash matching a
+single one is as likely an unknown relay sharing its byte.
 
 SNR colour thresholds (`-9 / -5 / 5` dB) are served by `/api/config`.
 

@@ -67,6 +67,9 @@ type Config struct {
 	// MaxHopKm is the longest distance accepted for a single radio hop. Longer
 	// pairs come from path hashes colliding across distant meshes. 0 disables it.
 	MaxHopKm float64 `json:"maxHopKm"`
+	// MinPathHashBytes: path hashes narrower than this are left unattributed
+	// (see ingest.Resolver). 2 drops 1-byte paths; 1 or 0 keeps them.
+	MinPathHashBytes int `json:"minPathHashBytes"`
 
 	// PushInterval coalesces live updates. Below about a second the browser
 	// spends more time re-styling the map than the data changes.
@@ -121,6 +124,7 @@ func Default() Config {
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,
 		MaxHopKm:             300,
+		MinPathHashBytes:     2,
 		LosAltimetryURL:      "https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevationLine.json",
 		LosResource:          "ign_rge_alti_wld",
 		LosFreqMHz:           869.525,

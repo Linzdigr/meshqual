@@ -74,6 +74,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 
 	resolver := ingest.NewResolver()
 	resolver.MaxHopKm = cfg.MaxHopKm
+	resolver.MinPathHashBytes = cfg.MinPathHashBytes
 	resolver.Regions = meshcore.NewRegionBook(cfg.RegionNames)
 	log.Info("region names", "candidates", resolver.Regions.Len())
 	aggregator := ingest.NewAggregator(cfg.FramesPerLink, cfg.SNRSamplesPerLink, cfg.LiveWindow.D())

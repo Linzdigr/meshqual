@@ -608,3 +608,30 @@ func mustHex(k string) []byte {
 	}
 	return b
 }
+
+// With MinPathHashBytes 2, a 1-byte path names no relay: no topology link and
+// no measured last hop. A 2-byte path is attributed as before.
+func TestNarrowPathHashesAreNotAttributed(t *testing.T) {
+	a, b, obs := pk(0x01), pk(0x02), pk(0x09)
+	r := NewResolver()
+	r.MinPathHashBytes = 2
+	for _, k := range []string{a, b, obs} {
+		r.Upsert(Node{Key: k})
+	}
+	decode := func(width int) *Decoded {
+		d, err := Decode(source.Observation{
+			ObserverKey: obs, ReceivedAt: time.Now(), SNR: f64(5),
+			Raw: buildFlood([]string{a, b}, width, meshcore.PayloadGrpTxt, []byte("x")),
+		}, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d := decode(1); len(d.Samples) != 0 || d.HopsUnresolved != 2 {
+		t.Errorf("1-byte path: %d samples, %d unresolved; want 0 and 2", len(d.Samples), d.HopsUnresolved)
+	}
+	if d := decode(2); len(d.Samples) != 2 {
+		t.Errorf("2-byte path: %d samples, want a topology link and the measured last hop", len(d.Samples))
+	}
+}

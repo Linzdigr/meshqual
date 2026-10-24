@@ -89,6 +89,11 @@ type Resolver struct {
 	MaxHopKm float64
 	// Regions names the region of scoped adverts. Set it before sharing.
 	Regions *meshcore.RegionBook
+	// MinPathHashBytes: narrower path hashes are not attributed to any node.
+	// With hundreds of known nodes, a 1-byte hash (256 values) that matches a
+	// single known node is as likely an unknown relay sharing its byte. Zero
+	// accepts every width. Set it before sharing.
+	MinPathHashBytes int
 
 	mu    sync.RWMutex
 	nodes map[string]*Node
@@ -182,8 +187,12 @@ func (r *Resolver) indexLocked(key string) {
 	}
 }
 
-// Resolve maps a path hash to a node.
+// Resolve maps a path hash to a node. Hashes narrower than MinPathHashBytes
+// resolve to nothing.
 func (r *Resolver) Resolve(h meshcore.Hash) Resolution {
+	if r.MinPathHashBytes > 0 && h.Size() < r.MinPathHashBytes {
+		return Resolution{}
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	c := r.byHash[h]

@@ -17,6 +17,25 @@ const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 const anySupport = companion.available.ble || companion.available.serial
 
+/**
+ * Where Web Bluetooth is off by default. Browsers refuse to open these pages
+ * from a link, so they are offered to copy into the address bar.
+ */
+const BLUETOOTH_FLAGS = [
+  { browser: 'Chrome sous Linux', url: 'chrome://flags/#enable-web-bluetooth' },
+  { browser: 'Brave', url: 'brave://flags/#brave-web-bluetooth-api' },
+]
+const copied = ref<string | null>(null)
+async function copy(url: string) {
+  try {
+    await navigator.clipboard.writeText(url)
+    copied.value = url
+    setTimeout(() => (copied.value = null), 2000)
+  } catch {
+    copied.value = null
+  }
+}
+
 async function connect(kind: 'ble' | 'serial') {
   await companion.connect(kind)
   if (companion.status === 'connected') open.value = false
@@ -59,7 +78,7 @@ onUnmounted(() => {
           Ce navigateur ne peut pas parler à une radio. Utilisez Chrome ou Edge (ordinateur ou Android).
         </p>
         <template v-else>
-          <p class="note">Reliez un compagnon MeshCore pour lancer des traces et gérer vos nœuds. NOTE: il est recommandé d'utiliser Chrome ou Edge et vous deverez certainement autoriser l'API Bluetooth Web dans: chrome://flags/#chrome-web-bluetooth-api.</p>
+          <p class="note">Reliez un compagnon MeshCore pour lancer des traces et gérer vos nœuds.</p>
           <div class="row">
             <button
               v-if="companion.available.ble"
@@ -83,6 +102,20 @@ onUnmounted(() => {
           </div>
           <p v-if="companion.connectError" class="ko">Connexion impossible : {{ companion.connectError }}</p>
         </template>
+        <!-- Bluetooth missing: most often a browser where Web Bluetooth is off. -->
+        <div v-if="!companion.available.ble" class="flags">
+          <p class="note">
+            Bluetooth indisponible ici. Chrome et Edge l'ont d'origine sous Windows, macOS et Android ; ailleurs,
+            activez-le en collant cette adresse dans la barre d'adresse, puis relancez le navigateur :
+          </p>
+          <ul>
+            <li v-for="f in BLUETOOTH_FLAGS" :key="f.url">
+              <span class="browser">{{ f.browser }}</span>
+              <code>{{ f.url }}</code>
+              <button type="button" class="copy" @click="copy(f.url)">{{ copied === f.url ? 'Copié' : 'Copier' }}</button>
+            </li>
+          </ul>
+        </div>
       </template>
     </div>
 
@@ -107,6 +140,45 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.flags ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flags li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 6px;
+  align-items: center;
+}
+
+.flags .browser {
+  grid-column: 1 / 3;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.flags code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.copy {
+  padding: 1px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
 /* Bottom right, above MapLibre's attribution. */
 .companion {
   position: absolute;

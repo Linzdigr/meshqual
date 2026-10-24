@@ -387,6 +387,11 @@ func (s *Server) liveLinks() []ingest.LinkView {
 		if (okA && s.silent(na)) || (okB && s.silent(nb)) {
 			continue
 		}
+		// Checked again now: at ingest an end without a known position yet
+		// (an observer publishing before its first advert) lets any pair pass.
+		if !s.d.Resolver.Plausible(l.AKey, l.BKey) {
+			continue
+		}
 		out = append(out, l)
 	}
 	return out

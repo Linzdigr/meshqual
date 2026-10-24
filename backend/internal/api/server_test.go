@@ -387,6 +387,23 @@ func TestNodesCarryBridgeLevel(t *testing.T) {
 	}
 }
 
+// A link checked at ingest while one end had no position yet is checked again
+// when served: once both are known and too far apart, it leaves the map.
+func TestTooLongLinksLeaveTheMap(t *testing.T) {
+	f := newFixture(t)
+	far := keyFor(0x66)
+	f.resolver.Upsert(ingest.Node{Key: far, Name: "far"}) // no position yet
+	id, fwd := ingest.NewLinkID(f.a, far)
+	f.aggregator.Add(&ingest.Decoded{Samples: []ingest.Sample{{
+		At: time.Now(), AKey: id.A, BKey: id.B, Forward: fwd, Kind: ingest.KindMeasured, SNR: ptrF(5), ObserverKey: far,
+	}}})
+	f.resolver.MaxHopKm = 300
+	f.resolver.Upsert(ingest.Node{Key: far, Latitude: ptrF(45.76), Longitude: ptrF(4.83)}) // Lyon, ~600 km
+	if _, body := f.get(t, "/api/links?minLng=-180&minLat=-85&maxLng=180&maxLat=85"); strings.Contains(string(body), far) {
+		t.Errorf("a 600 km hop is on the map: %s", body)
+	}
+}
+
 func TestHealthAndConfig(t *testing.T) {
 	f := newFixture(t)
 	res, body := f.get(t, "/api/health")
