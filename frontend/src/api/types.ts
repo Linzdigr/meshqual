@@ -68,6 +68,8 @@ export interface NodeProperties {
   regionName?: string
   /** An observer never seen relaying: drawn as a diamond, its links left off the map. */
   listenOnly?: boolean
+  /** How much the mesh depends on it to stay connected (topo analysis). */
+  bridge?: 'low' | 'medium' | 'high' | 'critical'
 }
 
 export interface CollectionMeta {

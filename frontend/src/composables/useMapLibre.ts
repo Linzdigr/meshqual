@@ -27,6 +27,7 @@ import {
 } from '@/map/elevation'
 import type { MapView } from '@/map/savedView'
 import { issueFilter, NODE_ISSUES, type NodeIssue } from '@/map/nodeIssues'
+import { BRIDGE_LINK_DIM, bridgeFillExpression, bridgeRadiusExpression } from '@/map/bridge'
 
 export const LINKS_SOURCE = 'links'
 export const NODES_SOURCE = 'nodes'
@@ -161,6 +162,17 @@ function warnImage(): ImageData {
   ctx.fillRect(12.6, 19.5, 2.8, 2.8)
   return ctx.getImageData(0, 0, px, px)
 }
+
+/** Node circles outside the "Rôle de pont" layer: repeaters a step bigger. */
+const NODE_RADIUS = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  5,
+  ['case', ['==', ['get', 'nodeType'], 'repeater'], 3, 2],
+  12,
+  ['case', ['==', ['get', 'nodeType'], 'repeater'], 6, 4],
+] as unknown as ExpressionSpecification
 
 /**
  * A listen-only observer: a diamond in the node circle's colours (surface fill,
@@ -607,15 +619,7 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
       source: NODES_SOURCE,
       filter: ['all', ['!', IS_LISTEN_ONLY], ['!', IS_COMPANION]] as ExpressionSpecification,
       paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          5,
-          ['case', ['==', ['get', 'nodeType'], 'repeater'], 3, 2],
-          12,
-          ['case', ['==', ['get', 'nodeType'], 'repeater'], 6, 4],
-        ] as unknown as ExpressionSpecification,
+        'circle-radius': NODE_RADIUS,
         'circle-color': dark ? SURFACE_DARK : SURFACE_LIGHT,
         'circle-stroke-width': 2,
         'circle-stroke-color': dark ? NO_DATA_DARK : NO_DATA_LIGHT,
@@ -838,6 +842,8 @@ export interface UseMapOptions {
   issues: Ref<NodeIssue[]>
   /** How long a link keeps its signal values; links fade over it. */
   measureRetentionSec: Ref<number>
+  /** Nodes sized and filled by their bridge role (map/bridge), links dimmed. */
+  bridge: Ref<boolean>
   /** Altitude as a colour ramp under the links. */
   altitude: Ref<boolean>
   /** The altitudes the ramp currently spans, or null while it is off. */
@@ -918,6 +924,7 @@ export function useMapLibre(opts: UseMapOptions) {
       applyView()
       applyFocus()
       applyAltitude()
+      applyBridge()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       opts.onMoveEnd(bboxOf(map))
@@ -1294,7 +1301,8 @@ export function useMapLibre(opts: UseMapOptions) {
     const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', links]]
     for (const { layer, prop, base } of LINK_OPACITY) {
       // The animated packet line is fresh by definition: no age fade.
-      const rest = layer === LAYER_ACTIVE ? base : measureFade(base, opts.measureRetentionSec.value)
+      const dim = opts.bridge.value ? BRIDGE_LINK_DIM : 1
+      const rest = layer === LAYER_ACTIVE ? base * dim : measureFade(base * dim, opts.measureRetentionSec.value)
       map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : rest)
     }
     const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', nodes]]
@@ -1378,7 +1386,7 @@ export function useMapLibre(opts: UseMapOptions) {
     map.setPaintProperty(LAYER_ALTITUDE, 'color-relief-opacity', altitudeOpacity(dark))
     addDataLayers()
     applyView()
-    applyFocus()
+    applyBridge() // also re-applies the focus
     updateFocusLabels()
     setTraceLabels(traceHops) // colours follow the theme
     syncActive()
@@ -1556,6 +1564,21 @@ export function useMapLibre(opts: UseMapOptions) {
     src.setData({ type: 'FeatureCollection', features } as never)
   }
 
+  /** Shows or hides the "Rôle de pont" layer: node size and fill by level. */
+  function applyBridge() {
+    if (!map || !ready) return
+    const on = opts.bridge.value
+    map.setPaintProperty(LAYER_NODES, 'circle-radius', on ? bridgeRadiusExpression() : NODE_RADIUS)
+    map.setPaintProperty(
+      LAYER_NODES,
+      'circle-color',
+      on ? bridgeFillExpression(opts.dark.value) : opts.dark.value ? SURFACE_DARK : SURFACE_LIGHT,
+    )
+    // The ⚠ is orange too, and would compete with the layer's warm fills.
+    map.setLayoutProperty(LAYER_NODE_WARN, 'visibility', on ? 'none' : 'visible')
+    applyFocus()
+  }
+
   function fitTo(bbox: BBox) {
     map?.fitBounds(
       [
@@ -1584,6 +1607,7 @@ export function useMapLibre(opts: UseMapOptions) {
     fitTo,
     applyView,
     applyAltitude,
+    applyBridge,
     applyFocus,
     markOnLink,
     animateHops,

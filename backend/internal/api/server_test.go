@@ -367,6 +367,26 @@ func TestListenOnlyObservers(t *testing.T) {
 	}
 }
 
+// Nodes on live links carry their bridge role, for the map's layer.
+func TestNodesCarryBridgeLevel(t *testing.T) {
+	f := newFixture(t)
+	f.feed(t, floodFrame([]string{f.a, f.b}, 2), "", nil, nil)
+	_, body := f.get(t, "/api/nodes")
+	var fc FeatureCollection
+	if err := json.Unmarshal(body, &fc); err != nil {
+		t.Fatal(err)
+	}
+	levels := map[string]any{}
+	for _, ft := range fc.Features {
+		levels[ft.Properties["key"].(string)] = ft.Properties["bridge"]
+	}
+	for _, k := range []string{f.a, f.b} {
+		if l, _ := levels[k].(string); l == "" {
+			t.Errorf("node %s has no bridge level: %v", k[:6], levels)
+		}
+	}
+}
+
 func TestHealthAndConfig(t *testing.T) {
 	f := newFixture(t)
 	res, body := f.get(t, "/api/health")

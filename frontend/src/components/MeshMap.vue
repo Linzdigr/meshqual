@@ -22,6 +22,8 @@ const props = defineProps<{
   measureRetentionSec: number
   issues: NodeIssue[]
   altitude: boolean
+  /** The "Rôle de pont" layer. */
+  bridge: boolean
   /** Nodes picked for a trace, in order, and the companion it starts from. */
   tracePath: string[]
   traceStart: string | null
@@ -44,6 +46,7 @@ const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
+const bridgeRef = ref(props.bridge)
 const retentionRef = ref(props.measureRetentionSec)
 const issuesRef = ref(props.issues)
 
@@ -63,6 +66,7 @@ const map = useMapLibre({
   asymThreshold: asymThresholdRef,
   palette: paletteRef,
   altitude: altitudeRef,
+  bridge: bridgeRef,
   measureRetentionSec: retentionRef,
   issues: issuesRef,
   onAltitudeRange: (r) => emit('altitudeRange', r),
@@ -127,6 +131,13 @@ watch(
   (sec) => {
     retentionRef.value = sec
     map.applyFocus()
+  },
+)
+watch(
+  () => props.bridge,
+  (on) => {
+    bridgeRef.value = on
+    map.applyBridge()
   },
 )
 watch(

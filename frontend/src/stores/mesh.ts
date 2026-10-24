@@ -29,6 +29,8 @@ interface ViewPrefs {
   asymOnly: boolean
   palette: SnrPalette
   altitude: boolean
+  /** The "Rôle de pont" map layer. */
+  bridge: boolean
   /** Node issues the ⚠ flags; the legend switches each off. */
   issues: NodeIssue[]
 }
@@ -42,12 +44,13 @@ function loadView(): ViewPrefs {
       asymOnly: v.asymOnly === true,
       palette: v.palette === 'traffic' ? 'traffic' : 'blue',
       altitude: v.altitude === true,
+      bridge: v.bridge === true,
       issues: Array.isArray(v.issues)
         ? NODE_ISSUES.filter((i) => (v.issues as unknown[]).includes(i))
         : [...NODE_ISSUES],
     }
   } catch {
-    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false, issues: [...NODE_ISSUES] }
+    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false, bridge: false, issues: [...NODE_ISSUES] }
   }
 }
 
@@ -97,12 +100,13 @@ export const useMeshStore = defineStore('mesh', () => {
   const asymOnly = ref(savedView.asymOnly)
   const palette = ref<SnrPalette>(savedView.palette)
   const altitude = ref(savedView.altitude)
+  const bridge = ref(savedView.bridge)
   const issues = ref<NodeIssue[]>(savedView.issues)
-  watch([viewMode, asymOnly, palette, altitude, issues], ([mode, only, pal, alt, iss]) => {
+  watch([viewMode, asymOnly, palette, altitude, issues, bridge], ([mode, only, pal, alt, iss, br]) => {
     try {
       localStorage.setItem(
         VIEW_KEY,
-        JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt, issues: iss }),
+        JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt, issues: iss, bridge: br }),
       )
     } catch {}
   })
@@ -160,6 +164,15 @@ export const useMeshStore = defineStore('mesh', () => {
   )
   const isCompanion = (t?: string) => t === 'companion'
   const companionCount = computed(() => nodes.value.features.filter((f) => isCompanion(f.properties.nodeType)).length)
+  /** Nodes in view per bridge level, for the layer's legend. */
+  const bridgeCounts = computed(() => {
+    const c: Record<string, number> = { low: 0, medium: 0, high: 0, critical: 0 }
+    for (const f of visibleNodes.value.features) {
+      const l = f.properties.bridge
+      if (l) c[l] = (c[l] ?? 0) + 1
+    }
+    return c
+  })
   /** Listen-only observers in view (drawn as diamonds). */
   const listenOnlyCount = computed(() => nodes.value.features.filter((f) => f.properties.listenOnly).length)
   /** Nodes in view per configuration issue (flagged ⚠ on the map). */
@@ -365,6 +378,8 @@ export const useMeshStore = defineStore('mesh', () => {
     asymOnly,
     palette,
     altitude,
+    bridge,
+    bridgeCounts,
     asymmetryThresholdDb,
     measureRetentionSec,
     asymmetricCount,

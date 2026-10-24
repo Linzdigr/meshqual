@@ -73,6 +73,8 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 	nodes := s.d.Resolver.Nodes()
 	fc := newCollection(len(nodes))
 	noPos := 0
+	// The bridge role per node, for the map's "Rôle de pont" layer (cached).
+	an := s.analysis(s.mapLinks())
 	for _, n := range nodes {
 		if s.silent(n) {
 			continue // silent too long: off the map, still known for resolution
@@ -84,8 +86,11 @@ func (s *Server) nodes(w http.ResponseWriter, r *http.Request) {
 		if !b.contains(*n.Latitude, *n.Longitude) {
 			continue
 		}
-		fc.Features = append(fc.Features, pointFeature(n.Key, [2]float64{*n.Longitude, *n.Latitude},
-			nodeProps(n, s.listenOnly(n))))
+		props := nodeProps(n, s.listenOnly(n))
+		if m := an.Nodes[n.Key]; m != nil {
+			props["bridge"] = string(m.Level)
+		}
+		fc.Features = append(fc.Features, pointFeature(n.Key, [2]float64{*n.Longitude, *n.Latitude}, props))
 	}
 	fc.Meta = &Meta{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339), Total: len(nodes),

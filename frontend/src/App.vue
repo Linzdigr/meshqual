@@ -346,6 +346,7 @@ watch(
         :measure-retention-sec="store.measureRetentionSec"
         :issues="store.issues"
         :altitude="store.altitude"
+        :bridge="store.bridge"
         :no-auto-fit="deepLink"
         :trace-path="trace.campaignRunning ? trace.currentCampaignPath : trace.selecting || trace.running ? trace.path : []"
         :trace-start="trace.companion?.publicKey ?? null"
@@ -362,6 +363,10 @@ watch(
           :altitude="store.altitude"
           :range="altitudeRange"
           @toggle-altitude="store.altitude = !store.altitude"
+          :bridge="store.bridge"
+          :bridge-counts="store.bridgeCounts"
+          :dark="dark"
+          @toggle-bridge="store.bridge = !store.bridge"
         />
       </div>
 
