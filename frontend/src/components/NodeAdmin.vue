@@ -4,6 +4,8 @@ import { RESP_ERR } from '@/companion/protocol'
 import { encodeLogin, encodeLogout, parseLoginResult, parseRequestSent, samePrefix, type NodeStats } from '@/companion/remote'
 import { ensureContact, getParam, requestStatus, runCli } from '@/companion/nodeCli'
 import { useTraceStore } from '@/stores/trace'
+import { describeArea, frenchArea, recommendedSteps, type Step } from '@/companion/recommend'
+import RecommendedSetup from './RecommendedSetup.vue'
 import { formatDuration } from '@/utils/duration'
 
 const props = defineProps<{
@@ -14,6 +16,8 @@ const props = defineProps<{
   position?: [number, number]
   /** An observer: its MQTT settings are offered. */
   observer?: boolean
+  /** Path hash width from its adverts, for the recommended settings. */
+  pathHashSize?: number
 }>()
 
 const companion = useTraceStore()
@@ -438,6 +442,28 @@ async function fix(command: string): Promise<string> {
   return (await runCli(companion, props.nodeKey, command)).trim() || 'OK'
 }
 
+// ---- Recommended settings ----------------------------------------------
+
+const setup = ref<{ steps: Step[]; area: string | null } | null>(null)
+const locating = ref(false)
+
+/**
+ * Builds the script, with the region tree for where the node stands (its
+ * department and region, from geo.api.gouv.fr), then shows it for review.
+ */
+async function openSetup() {
+  locating.value = true
+  const [lon, lat] = props.position ?? []
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 5_000)
+  const area = lat !== undefined && lon !== undefined ? await frenchArea(lat, lon, ac.signal) : null
+  clearTimeout(timer)
+  locating.value = false
+  setup.value = { steps: recommendedSteps(area), area: area ? describeArea(area) : null }
+}
+
+const runOne = (command: string) => runCli(companion, props.nodeKey, command)
+
 defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.value) })
 </script>
 
@@ -468,6 +494,18 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
         <span class="note">· {{ viaFlood ? 'chemin inconnu, envoi flood' : 'chemin direct' }}</span>
         <button type="button" class="link" @click="close">Fermer la session</button>
       </p>
+
+      <button v-if="admin" type="button" class="btn recommend" :disabled="locating" @click="openSetup">
+        {{ locating ? 'Localisation du nœud…' : 'Appliquer les réglages recommandés…' }}
+      </button>
+      <RecommendedSetup
+        v-if="setup"
+        :node-name="name"
+        :steps="setup.steps"
+        :area="setup.area"
+        :run="runOne"
+        @close="setup = null"
+      />
 
       <div class="tabs" role="tablist">
         <button type="button" role="tab" :aria-selected="tab === 'status'" :class="{ on: tab === 'status' }" @click="tab = 'status'">
@@ -799,6 +837,10 @@ summary {
 
 .reply {
   color: var(--status-good);
+}
+
+.recommend {
+  align-self: flex-start;
 }
 
 .ro {

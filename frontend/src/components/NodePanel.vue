@@ -272,6 +272,7 @@ function snr(v: number | null): string {
         :node-type="node.nodeType"
         :position="mapPosition"
         :observer="node.observer === true"
+        :path-hash-size="node.pathHashSize"
       />
     </template>
   </aside>
