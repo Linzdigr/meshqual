@@ -22,6 +22,11 @@ dev: ## Run the backend with no database and no broker (replay file optional)
 	cd backend && MESHQUAL_LOG_LEVEL=debug MESHQUAL_CORS_ORIGINS=http://localhost:5173 \
 		go run ./cmd/relayd
 
+# The version relayd reports (status bar, /api/health): the latest tag plus the
+# commits since, or the commit; "-dirty" when the working tree has changes.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+export VERSION
+
 up: ## Start the whole stack
 	@# mosquitto refuses to start without its password file, even an empty one.
 	@# Only create it: once the broker owns it, the host user may not touch it.

@@ -13,14 +13,14 @@ export function useTheme() {
 
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
 
+  /**
+   * data-theme always holds the theme in effect, auto included: PrimeVue's
+   * components (the frame table) switch on it alone, not on the system media
+   * query the app's own tokens also follow.
+   */
   function apply() {
     dark.value = resolve(mode.value)
-    const root = document.documentElement
-    if (mode.value === 'auto') {
-      root.removeAttribute('data-theme')
-    } else {
-      root.setAttribute('data-theme', mode.value)
-    }
+    document.documentElement.setAttribute('data-theme', dark.value ? 'dark' : 'light')
   }
 
   function onSystemChange() {
