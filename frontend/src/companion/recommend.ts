@@ -97,7 +97,7 @@ export function recommendedSteps(area: FrenchArea | null): Step[] {
   const steps: Step[] = [
     { command: 'set advert.interval 240', why: 'annonce locale (sans relais) toutes les 4 h, le maximum' },
     { command: 'set flood.advert.interval 24', why: 'annonce flood une fois par jour' },
-    { command: 'set agc.reset.interval 4', why: 'réinitialise le gain du récepteur toutes les 4 s' },
+    { command: 'set agc.reset.interval 30', why: 'réinitialise le gain du récepteur toutes les 30 s' },
     { command: 'set loop.detect minimal', why: 'écarte les paquets flood qui tournent en boucle' },
     { command: 'set path.hash.mode 1', why: 'hashes de chemin sur 2 octets : les sauts restent attribuables' },
     { command: 'set multi.acks 1', why: 'accusé de réception doublé : moins de messages crus perdus' },

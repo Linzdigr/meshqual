@@ -38,7 +38,7 @@ const attribution = computed(() => {
   <div class="bar">
     <div class="group">
       <span class="brand">meshqual</span>
-      <span v-if="health" class="mono dim">v{{ health.version }}</span>
+      <span v-if="health" class="mono dim">{{ /^\d/.test(health.version) ? `v${health.version}` : health.version }}</span>
     </div>
 
     <div class="group">
