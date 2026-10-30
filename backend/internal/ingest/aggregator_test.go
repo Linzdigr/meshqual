@@ -274,3 +274,29 @@ func TestFramesKeepMeasurementsListed(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreCountsReplacesWarmUpCounters(t *testing.T) {
+	ag := NewAggregator(10, 256, time.Hour)
+	now := time.Now().UTC()
+	ag.Add(&Decoded{Samples: []Sample{sampleAt("A", "B", KindTopology, nil, now)}})
+	id := LinkID{A: "A", B: "B"}
+	first := now.Add(-20 * time.Hour)
+	ag.RestoreCounts([]LinkCount{
+		{ID: id, Forward: true, Observer: "OBS", N: 700, First: first},
+		{ID: id, Forward: false, Observer: "OBS2", N: 300, First: now},
+		{ID: LinkID{A: "C", B: "D"}, Forward: true, N: 5, First: now}, // not in the table
+	})
+	v, _ := ag.Get(id)
+	if v.Samples != 1000 || v.Forward != 700 || v.Backward != 300 {
+		t.Errorf("counts = %d (%d / %d), want 1000 (700 / 300)", v.Samples, v.Forward, v.Backward)
+	}
+	if v.Observers["OBS"] != 700 || v.Observers["OBS2"] != 300 {
+		t.Errorf("observers = %v", v.Observers)
+	}
+	if !v.FirstSeen.Equal(first) {
+		t.Errorf("first seen = %v, want %v", v.FirstSeen, first)
+	}
+	if _, ok := ag.Get(LinkID{A: "C", B: "D"}); ok {
+		t.Error("a count created a link")
+	}
+}

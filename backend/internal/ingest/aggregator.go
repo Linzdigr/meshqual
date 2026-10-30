@@ -212,6 +212,52 @@ func (a *Aggregator) Add(d *Decoded) {
 	}
 }
 
+// RingSizes is how many frames per link and signal values per direction the
+// table keeps: all a warm-up needs to read back.
+func (a *Aggregator) RingSizes() (frames, signal int) { return a.maxFrames, a.maxSNR }
+
+// LinkCount is how many samples one observer reported on one direction of a
+// link, and since when.
+type LinkCount struct {
+	ID       LinkID
+	Forward  bool
+	Observer string
+	N        int
+	First    time.Time
+}
+
+// RestoreCounts replaces the counters of the links already in the table with
+// stored totals, after a warm-up that read only the newest samples of each.
+// Counts for links not in the table are ignored.
+func (a *Aggregator) RestoreCounts(counts []LinkCount) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	reset := map[LinkID]bool{}
+	for _, c := range counts {
+		st := a.links[c.ID]
+		if st == nil {
+			continue
+		}
+		if !reset[c.ID] {
+			reset[c.ID] = true
+			st.Samples, st.Forward, st.Backward = 0, 0, 0
+			st.Observers = map[string]int{}
+		}
+		st.Samples += c.N
+		if c.Forward {
+			st.Forward += c.N
+		} else {
+			st.Backward += c.N
+		}
+		if c.Observer != "" {
+			st.Observers[c.Observer] += c.N
+		}
+		if c.First.Before(st.FirstSeen) {
+			st.FirstSeen = c.First
+		}
+	}
+}
+
 // Snapshot returns a copy of every live link.
 func (a *Aggregator) Snapshot() []LinkView {
 	a.mu.RLock()

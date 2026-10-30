@@ -68,7 +68,8 @@ type Store interface {
 	LoadNodes(ctx context.Context) ([]NodeRow, error)
 	WriteObservations(ctx context.Context, rows []ObservationRow) error
 	WriteSamples(ctx context.Context, samples []ingest.Sample) error
-	LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, limit int) ([]ingest.Sample, error)
+	LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, framesPerLink, signalPerDirection int) ([]ingest.Sample, error)
+	LoadLinkCounts(ctx context.Context, since, measuredSince time.Time) ([]ingest.LinkCount, error)
 	LinkHistory(ctx context.Context, a, b string, since time.Time, bucket time.Duration) ([]Bucket, error)
 	Ping(ctx context.Context) error
 	Close()
@@ -86,8 +87,11 @@ func (Noop) WriteObservations(context.Context, []ObservationRow) error { return 
 func (Noop) WriteSamples(context.Context, []ingest.Sample) error       { return nil }
 func (Noop) Ping(context.Context) error                                { return nil }
 func (Noop) Close()                                                    {}
-func (Noop) LoadRecentSamples(context.Context, time.Time, time.Time, int) ([]ingest.Sample, error) {
+func (Noop) LoadRecentSamples(context.Context, time.Time, time.Time, int, int) ([]ingest.Sample, error) {
 	return []ingest.Sample{}, nil
+}
+func (Noop) LoadLinkCounts(context.Context, time.Time, time.Time) ([]ingest.LinkCount, error) {
+	return nil, nil
 }
 func (Noop) LinkHistory(context.Context, string, string, time.Time, time.Duration) ([]Bucket, error) {
 	return []Bucket{}, nil

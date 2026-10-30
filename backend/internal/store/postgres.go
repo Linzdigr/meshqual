@@ -247,18 +247,33 @@ func (p *Postgres) WriteSamples(ctx context.Context, samples []ingest.Sample) er
 	return err
 }
 
+// scope is what the in-memory link table covers: every sample since $1, and
+// those carrying a signal value back to $2.
+const scope = `time >= LEAST($1, $2::timestamptz)
+  AND (time >= $1 OR snr IS NOT NULL OR rssi IS NOT NULL)`
+
 // LoadRecentSamples warms the in-memory aggregator after a restart, newest
-// first: every sample since `since`, and those carrying a signal value back to
-// `measuredSince`.
-func (p *Postgres) LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, limit int) ([]ingest.Sample, error) {
+// first. Only what the aggregator's rings hold is read: per link, the last
+// framesPerLink samples since `since`, and per direction the last
+// signalPerDirection samples carrying a signal value back to `measuredSince`.
+// A global cap would be filled by the last hours of path-hop traffic and leave
+// out the older measurements.
+func (p *Postgres) LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, framesPerLink, signalPerDirection int) ([]ingest.Sample, error) {
 	rows, err := p.pool.Query(ctx, `
+WITH ranked AS (
+  SELECT *,
+         row_number() OVER (PARTITION BY a_key, b_key ORDER BY time DESC) AS rn_link,
+         row_number() OVER (PARTITION BY a_key, b_key, forward, (snr IS NOT NULL OR rssi IS NOT NULL)
+                            ORDER BY time DESC) AS rn_dir
+  FROM link_samples
+  WHERE `+scope+`
+)
 SELECT time, a_key, b_key, forward, kind, snr, rssi, observer_key,
        payload_type, route_type, hop_index, hop_count, source_id, wire_hash
-FROM link_samples
-WHERE time >= LEAST($1, $2::timestamptz)
-  AND (time >= $1 OR snr IS NOT NULL OR rssi IS NOT NULL)
-ORDER BY time DESC
-LIMIT $3`, since, measuredSince, limit)
+FROM ranked
+WHERE (time >= $1 AND rn_link <= $3)
+   OR ((snr IS NOT NULL OR rssi IS NOT NULL) AND rn_dir <= $4)
+ORDER BY time DESC`, since, measuredSince, framesPerLink, signalPerDirection)
 	if err != nil {
 		return nil, err
 	}
@@ -286,6 +301,35 @@ LIMIT $3`, since, measuredSince, limit)
 			s.RSSI = &v
 		}
 		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// LoadLinkCounts counts the samples LoadRecentSamples leaves out, over the
+// same scope: per link, direction and observer.
+func (p *Postgres) LoadLinkCounts(ctx context.Context, since, measuredSince time.Time) ([]ingest.LinkCount, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT a_key, b_key, forward, observer_key, count(*), min(time)
+FROM link_samples
+WHERE `+scope+`
+GROUP BY a_key, b_key, forward, observer_key`, since, measuredSince)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ingest.LinkCount{}
+	for rows.Next() {
+		var (
+			c         ingest.LinkCount
+			a, b, obs []byte
+		)
+		if err := rows.Scan(&a, &b, &c.Forward, &obs, &c.N, &c.First); err != nil {
+			return nil, err
+		}
+		c.ID = ingest.LinkID{A: hexUpper(a), B: hexUpper(b)}
+		c.Observer = hexUpper(obs)
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

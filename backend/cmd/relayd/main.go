@@ -110,10 +110,17 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}, log)
 
 	now := time.Now().UTC()
-	if samples, err := st.LoadRecentSamples(ctx, now.Add(-cfg.LiveWindow.D()), now.Add(-cfg.MeasureRetention.D()), 500_000); err != nil {
+	since, measuredSince := now.Add(-cfg.LiveWindow.D()), now.Add(-cfg.MeasureRetention.D())
+	frames, signal := aggregator.RingSizes()
+	if samples, err := st.LoadRecentSamples(ctx, since, measuredSince, frames, signal); err != nil {
 		log.Warn("could not warm link table", "err", err)
 	} else if len(samples) > 0 {
 		dropped := pipeline.WarmFromSamples(samples)
+		if counts, err := st.LoadLinkCounts(ctx, since, measuredSince); err != nil {
+			log.Warn("could not restore link counters", "err", err)
+		} else {
+			aggregator.RestoreCounts(counts)
+		}
 		log.Info("link table warmed", "samples", len(samples), "implausible", dropped,
 			"links", aggregator.Health().Links)
 	}
