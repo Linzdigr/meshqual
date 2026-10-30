@@ -23,7 +23,7 @@ describe('recommendedSteps', () => {
       'region home fr',
       'region save',
     ])
-    expect(c).toContain('set agc.reset.interval 4')
+    expect(c).toContain('set agc.reset.interval 30')
   })
 
   it('leaves the regions out elsewhere', () => {

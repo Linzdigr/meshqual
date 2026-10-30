@@ -2,7 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { RESP_ERR } from '@/companion/protocol'
 import { encodeLogin, encodeLogout, parseLoginResult, parseRequestSent, samePrefix, type NodeStats } from '@/companion/remote'
-import { ensureContact, getParam, requestStatus, runCli } from '@/companion/nodeCli'
+import { ensureContact, getParam, NoReply, requestStatus, resetPath, runCli, withFloodRetry } from '@/companion/nodeCli'
 import { useTraceStore } from '@/stores/trace'
 import { describeArea, frenchArea, recommendedSteps, type Step } from '@/companion/recommend'
 import RecommendedSetup from './RecommendedSetup.vue'
@@ -26,7 +26,19 @@ const password = ref('')
 const state = ref<'idle' | 'busy' | 'open' | 'error'>('idle')
 const error = ref<string | null>(null)
 const admin = ref(false)
-const viaFlood = ref(false)
+/** How requests reach the node: flood, a path the companion knew, one from a trace, or flood again after a lost path. */
+const route = ref<'flood' | 'direct' | 'trace' | 'reset'>('flood')
+const ROUTE_LABEL = {
+  flood: 'connexion en flood, chemin appris au retour',
+  direct: 'chemin direct',
+  trace: "chemin direct, celui d'une trace revenue",
+  reset: 'chemin perdu, renvoi en flood',
+} as const
+const onPathReset = () => (route.value = 'reset')
+
+/** Every request to the node goes out flood again once if its stored path no longer answers. */
+const cli = (command: string) => withFloodRetry(companion, props.nodeKey, () => runCli(companion, props.nodeKey, command), onPathReset)
+const param = (name: string) => withFloodRetry(companion, props.nodeKey, () => getParam(companion, props.nodeKey, name), onPathReset)
 const tab = ref<'status' | 'settings' | 'cli'>('status')
 
 // A new node closes the session view; the companion keeps its own state.
@@ -43,22 +55,31 @@ watch(
   },
 )
 
+async function login(pwd: string) {
+  const sentFrame = await companion.exchange(encodeLogin(props.nodeKey, pwd), (f) => f[0] === 0x06 || f[0] === RESP_ERR)
+  const sent = sentFrame && parseRequestSent(sentFrame)
+  if (!sent) throw new Error('connexion refusée par le compagnon')
+  if (sent.flood) route.value = route.value === 'reset' ? 'reset' : 'flood'
+  else if (route.value === 'flood') route.value = 'direct'
+  const f = await companion.waitFor((x) => {
+    const r = parseLoginResult(x)
+    return !!r && samePrefix(r.prefix, props.nodeKey)
+  }, sent.timeoutMs + 8_000)
+  const r = f && parseLoginResult(f)
+  if (!r) throw new NoReply('pas de réponse du nœud', !sent.flood)
+  return r
+}
+
 async function open() {
   state.value = 'busy'
   error.value = null
+  // Kept only for this attempt and its flood retry.
+  const pwd = password.value
+  password.value = ''
   try {
-    await ensureContact(companion, props.nodeKey, props.nodeType, props.name)
-    const sentFrame = await companion.exchange(encodeLogin(props.nodeKey, password.value), (f) => f[0] === 0x06 || f[0] === RESP_ERR)
-    password.value = ''
-    const sent = sentFrame && parseRequestSent(sentFrame)
-    if (!sent) throw new Error('connexion refusée par le compagnon')
-    viaFlood.value = sent.flood
-    const f = await companion.waitFor((x) => {
-      const r = parseLoginResult(x)
-      return !!r && samePrefix(r.prefix, props.nodeKey)
-    }, sent.timeoutMs + 8_000)
-    const r = f && parseLoginResult(f)
-    if (!r) throw new Error('pas de réponse du nœud')
+    const seeded = await ensureContact(companion, props.nodeKey, props.nodeType, props.name, companion.routeTo(props.nodeKey))
+    route.value = seeded ? 'trace' : 'flood'
+    const r = await withFloodRetry(companion, props.nodeKey, () => login(pwd), onPathReset)
     if (!r.ok) throw new Error('mot de passe refusé')
     admin.value = r.admin
     state.value = 'open'
@@ -66,6 +87,16 @@ async function open() {
   } catch (e) {
     state.value = 'error'
     error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** Drops the companion's stored path to the node: the next request floods and learns a fresh one. */
+async function forgetPath() {
+  try {
+    await resetPath(companion, props.nodeKey)
+    route.value = 'flood'
+  } catch (e) {
+    statsError.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -85,7 +116,7 @@ async function refreshStats() {
   statsBusy.value = true
   statsError.value = null
   try {
-    stats.value = await requestStatus(companion, props.nodeKey)
+    stats.value = await withFloodRetry(companion, props.nodeKey, () => requestStatus(companion, props.nodeKey), onPathReset)
     statsAt.value = Date.now()
   } catch (e) {
     statsError.value = e instanceof Error ? e.message : String(e)
@@ -310,7 +341,7 @@ async function readField(f: Field, cache?: Map<string, string>) {
   const cmd = f.get ?? `get ${f.name}`
   let reply = cache?.get(cmd)
   if (reply === undefined) {
-    reply = f.get ? await runCli(companion, props.nodeKey, cmd) : await getParam(companion, props.nodeKey, f.name)
+    reply = f.get ? await cli(cmd) : await param(f.name)
     cache?.set(cmd, reply)
   }
   values[f.name] = f.parse ? f.parse(reply) : reply
@@ -360,7 +391,7 @@ async function apply(f: Field) {
   if (f.confirm && !window.confirm(f.confirm(v))) return
   busyField.value = f.name
   try {
-    const reply = await runCli(companion, props.nodeKey, f.set ? f.set(v) : `set ${f.name} ${v}`)
+    const reply = await cli(f.set ? f.set(v) : `set ${f.name} ${v}`)
     const ok = !/^\s*(err|error|unknown)/i.test(reply)
     results[f.name] = { ok, text: reply.trim() || 'OK' }
     await readField(f) // confirm what the node now holds
@@ -382,7 +413,7 @@ async function runAction(a: { command: string; confirm?: string }) {
   if (a.confirm && !window.confirm(a.confirm)) return
   actionReplies[a.command] = '…'
   try {
-    actionReplies[a.command] = (await runCli(companion, props.nodeKey, a.command)).trim() || 'OK'
+    actionReplies[a.command] = (await cli(a.command)).trim() || 'OK'
   } catch (err) {
     actionReplies[a.command] = err instanceof Error ? err.message : String(err)
   }
@@ -416,7 +447,7 @@ async function sendCli() {
   cliInput.value = ''
   historyIndex = -1
   try {
-    const reply = await runCli(companion, props.nodeKey, command)
+    const reply = await cli(command)
     cliLog.value = [...cliLog.value, { command, reply: reply.trim() || 'OK', ok: true, at: Date.now() }]
   } catch (err) {
     cliLog.value = [
@@ -439,7 +470,7 @@ function cliHistory(step: 1 | -1) {
 
 /** One-click fixes offered from the node panel's ⚠ (see NodePanel). */
 async function fix(command: string): Promise<string> {
-  return (await runCli(companion, props.nodeKey, command)).trim() || 'OK'
+  return (await cli(command)).trim() || 'OK'
 }
 
 // ---- Recommended settings ----------------------------------------------
@@ -462,7 +493,7 @@ async function openSetup() {
   setup.value = { steps: recommendedSteps(area), area: area ? describeArea(area) : null }
 }
 
-const runOne = (command: string) => runCli(companion, props.nodeKey, command)
+const runOne = cli
 
 defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.value) })
 </script>
@@ -491,7 +522,15 @@ defineExpose({ fix, isAdmin: computed(() => state.value === 'open' && admin.valu
       <p class="session">
         <span class="dot" aria-hidden="true" />
         {{ admin ? 'Administrateur' : 'Lecture seule' }}
-        <span class="note">· {{ viaFlood ? 'chemin inconnu, envoi flood' : 'chemin direct' }}</span>
+        <span class="note">· {{ ROUTE_LABEL[route] }}</span>
+        <button
+          type="button"
+          class="link"
+          title="Le compagnon oublie le chemin stocké : la prochaine requête part en flood et en apprend un nouveau"
+          @click="forgetPath"
+        >
+          Oublier le chemin
+        </button>
         <button type="button" class="link" @click="close">Fermer la session</button>
       </p>
 

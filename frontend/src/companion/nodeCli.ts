@@ -1,9 +1,12 @@
 import { RESP_ERR, RESP_OK } from './protocol'
 import {
   cliValue,
+  contactHasPath,
   encodeAddContact,
   encodeCli,
+  encodeContactRoute,
   encodeGetContact,
+  encodeResetPath,
   encodeStatusRequest,
   encodeSyncNext,
   parseCliReply,
@@ -28,12 +31,68 @@ const isSentOrErr = (f: Uint8Array) => f[0] === 0x06 || f[0] === RESP_ERR
 /** Frames CMD_SYNC_NEXT_MESSAGE answers with. */
 const SYNC_REPLIES = new Set([7, 8, RESP_NO_MORE_MESSAGES, 16, 17, 27])
 
-/** Makes sure the node is a contact of the companion, which requests need. */
-export async function ensureContact(c: CompanionLink, key: string, nodeType: string, name: string) {
+/** The node did not answer a request; `direct` when it went along a stored path. */
+export class NoReply extends Error {
+  constructor(
+    message: string,
+    readonly direct: boolean,
+  ) {
+    super(message)
+  }
+}
+
+const isOkOrErr = (f: Uint8Array) => f[0] === RESP_OK || f[0] === RESP_ERR
+
+/**
+ * Makes sure the node is a contact of the companion, which requests need.
+ * `route` (the repeaters a returned trace went through to reach it) becomes
+ * the contact's path when the companion knows none, so requests go direct
+ * instead of flooding the mesh; a path the companion learned itself is kept.
+ * Returns true when the route was written.
+ */
+export async function ensureContact(
+  c: CompanionLink,
+  key: string,
+  nodeType: string,
+  name: string,
+  route?: string[] | null,
+): Promise<boolean> {
   const got = await c.exchange(encodeGetContact(key), (f) => f[0] === RESP_CONTACT || f[0] === RESP_ERR)
-  if (got?.[0] === RESP_CONTACT) return
-  const added = await c.exchange(encodeAddContact(key, nodeType, name), (f) => f[0] === RESP_OK || f[0] === RESP_ERR)
+  if (got?.[0] === RESP_CONTACT) {
+    if (!route || contactHasPath(got)) return false
+    const updated = await c.exchange(encodeContactRoute(got, route), isOkOrErr)
+    return updated?.[0] === RESP_OK
+  }
+  const added = await c.exchange(encodeAddContact(key, nodeType, name, route), isOkOrErr)
   if (added?.[0] !== RESP_OK) throw new Error("le compagnon n'a pas pu ajouter ce nœud à ses contacts")
+  return !!route
+}
+
+/** Forgets the contact's stored path: the next request goes out flood. */
+export async function resetPath(c: CompanionLink, key: string) {
+  const r = await c.exchange(encodeResetPath(key), isOkOrErr)
+  if (r?.[0] !== RESP_OK) throw new Error("le compagnon n'a pas pu oublier le chemin")
+}
+
+/**
+ * Runs `request`, and once more out flood if it went along a stored path and
+ * got no answer: a repeater on that path may be gone. `onReset` is told when
+ * the path is dropped.
+ */
+export async function withFloodRetry<T>(
+  c: CompanionLink,
+  key: string,
+  request: () => Promise<T>,
+  onReset?: () => void,
+): Promise<T> {
+  try {
+    return await request()
+  } catch (e) {
+    if (!(e instanceof NoReply) || !e.direct) throw e
+    await resetPath(c, key)
+    onReset?.()
+    return request()
+  }
 }
 
 /** Asks the node for its statistics. */
@@ -45,7 +104,7 @@ export async function requestStatus(c: CompanionLink, key: string): Promise<Node
     const s = parseStatus(x)
     return !!s && samePrefix(s.prefix, key)
   }, sent.timeoutMs + MARGIN_MS)
-  if (!f) throw new Error('pas de réponse du nœud')
+  if (!f) throw new NoReply('pas de réponse du nœud', !sent.flood)
   return parseStatus(f)!
 }
 
@@ -86,7 +145,7 @@ export async function runCli(c: CompanionLink, key: string, command: string): Pr
     void drain() // a reply may already be waiting
     const text = await reply
     clearTimeout(timer)
-    if (text === null) throw new Error('pas de réponse du nœud')
+    if (text === null) throw new NoReply('pas de réponse du nœud', !sent.flood)
     return text
   } finally {
     stop()

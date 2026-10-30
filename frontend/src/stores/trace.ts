@@ -15,6 +15,7 @@ import {
   type SelfInfo,
 } from '@/companion/protocol'
 import { planTraces, type PlannedTrace } from '@/companion/planner'
+import { MAX_ROUTE_HOPS } from '@/companion/remote'
 import {
   Cancelled,
   connect as openTransport,
@@ -129,6 +130,21 @@ export const useTraceStore = defineStore('trace', () => {
   const listeners = new Set<(f: Uint8Array) => void>()
 
   const connected = computed(() => status.value === 'connected')
+
+  /**
+   * Proven routes from the companion: for each node a returned trace (or a
+   * discovery) reached, the repeaters in between, the shortest seen. The node
+   * panel gives one to the companion as the node's contact path.
+   */
+  const routes = new Map<string, string[]>()
+  function learnRoutes(keys: string[]) {
+    keys.forEach((k, i) => {
+      if (i > MAX_ROUTE_HOPS || keys.indexOf(k) !== i) return
+      const known = routes.get(k)
+      if (!known || i <= known.length) routes.set(k, keys.slice(0, i))
+    })
+  }
+  const routeTo = (key: string): string[] | null => routes.get(key) ?? null
   const selecting = computed(() => open.value && connected.value && mode.value === 'manual')
   const busy = computed(() => running.value || discovering.value || campaignRunning.value)
   const canRun = computed(() => selecting.value && path.value.length > 0 && !busy.value)
@@ -227,6 +243,7 @@ export const useTraceStore = defineStore('trace', () => {
         throw new Error("pas de réponse : est-ce bien un compagnon MeshCore ?")
       }
       companion.value = parseSelfInfo(info)
+      routes.clear()
       status.value = 'connected'
     } catch (e) {
       onClose()
@@ -303,6 +320,7 @@ export const useTraceStore = defineStore('trace', () => {
         // the companion hearing the final hop.
         const measured = hops.map((h, i) => ({ ...h, snr: i < data.snrs.length ? data.snrs[i] : data.finalSnr }))
         animate(measured.slice(half))
+        learnRoutes(keys)
         void submit('trace', tag, measured)
         return { ok: true, hops: measured, at: Date.now(), tag }
       }
@@ -387,6 +405,7 @@ export const useTraceStore = defineStore('trace', () => {
       discovering.value = false
       discoveredAt.value = Date.now()
     }
+    for (const k of found.keys()) learnRoutes([k])
     const self = companion.value?.publicKey
     if (self && found.size) {
       void submit(
@@ -535,6 +554,7 @@ export const useTraceStore = defineStore('trace', () => {
     exchange,
     listen,
     waitFor,
+    routeTo,
     available,
     status,
     companion,

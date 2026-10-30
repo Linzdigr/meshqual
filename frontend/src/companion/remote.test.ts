@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   cliValue,
+  contactHasPath,
   encodeAddContact,
   encodeCli,
+  encodeContactRoute,
+  encodeResetPath,
   encodeLogin,
   parseCliReply,
   parseLoginResult,
@@ -27,6 +30,35 @@ describe('requests', () => {
     expect(f[35]).toBe(0xff) // path unknown
     expect(new TextDecoder().decode(f.subarray(100, 105))).toBe('Salon')
     expect(f.length).toBe(1 + 32 + 3 + 64 + 32 + 4 + 8)
+  })
+
+  it('adds a contact with the route of a returned trace, 2-byte hashes', () => {
+    const f = encodeAddContact(KEY, 'repeater', 'R', ['1A2B' + '00'.repeat(30), '3C4D' + '00'.repeat(30)])
+    expect(f[35]).toBe(0x42) // hash width 2 (0b01 << 6), 2 hops
+    expect(Array.from(f.subarray(36, 41))).toEqual([0x1a, 0x2b, 0x3c, 0x4d, 0])
+  })
+
+  it('marks a node in direct range with an empty route', () => {
+    expect(encodeAddContact(KEY, 'repeater', 'R', [])[35]).toBe(0x40)
+  })
+
+  it('writes a route into a stored contact and keeps the rest', () => {
+    const contact = encodeAddContact(KEY, 'room', 'Salon')
+    contact[0] = 3 // as RESP_CONTACT
+    contact.fill(0xee, 36, 100) // leftovers of an older path
+    expect(contactHasPath(contact)).toBe(false)
+    const f = encodeContactRoute(contact, ['1A2B' + '00'.repeat(30)])
+    expect(f[0]).toBe(9)
+    expect(f[35]).toBe(0x41)
+    expect(Array.from(f.subarray(36, 39))).toEqual([0x1a, 0x2b, 0])
+    expect(f.subarray(100)).toEqual(contact.subarray(100))
+    expect(contactHasPath(f)).toBe(true)
+  })
+
+  it('resets a path by key', () => {
+    const f = encodeResetPath(KEY)
+    expect(f[0]).toBe(13)
+    expect(Array.from(f.subarray(1, 4))).toEqual([0xab, 0x12, 0xcd])
   })
 
   it('sends CLI text to the 6-byte key prefix', () => {

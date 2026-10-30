@@ -6,9 +6,12 @@
  * travel over the mesh. Pure encoding and decoding, like protocol.ts.
  */
 
+import { pathHash, TRACE_HASH_BYTES } from './protocol'
+
 export const CMD_SEND_TXT_MSG = 2
 export const CMD_ADD_UPDATE_CONTACT = 9
 export const CMD_SYNC_NEXT_MESSAGE = 10
+export const CMD_RESET_PATH = 13
 export const CMD_SEND_LOGIN = 26
 export const CMD_SEND_STATUS_REQ = 27
 export const CMD_LOGOUT = 29
@@ -26,6 +29,8 @@ export const PUSH_STATUS_RESPONSE = 0x87
 const TXT_TYPE_CLI_DATA = 1
 const OUT_PATH_UNKNOWN = 0xff
 const MAX_PATH_SIZE = 64
+/** Where out_path_len sits in a contact frame (RESP_CONTACT and CMD_ADD_UPDATE_CONTACT alike). */
+const OUT_PATH_LEN_AT = 1 + 32 + 2
 const ADV_TYPE: Record<string, number> = { companion: 1, repeater: 2, room: 3, sensor: 4 }
 
 const enc = new TextEncoder()
@@ -53,10 +58,26 @@ export function encodeGetContact(key: string): Uint8Array {
 }
 
 /**
- * Adds the node to the companion's contacts with no known path: the first
- * request goes out flood and the reply teaches the companion a direct path.
+ * Writes the repeaters to go through (companion side first, the node itself
+ * left out) as the contact's out path: out_path_len holds the hash count, with
+ * the hash width minus one in its top two bits. An empty route means the node
+ * is in direct range.
  */
-export function encodeAddContact(key: string, nodeType: string, name: string): Uint8Array {
+function setOutPath(frame: Uint8Array, route: string[]) {
+  frame[OUT_PATH_LEN_AT] = ((TRACE_HASH_BYTES - 1) << 6) | route.length
+  frame.fill(0, OUT_PATH_LEN_AT + 1, OUT_PATH_LEN_AT + 1 + MAX_PATH_SIZE)
+  route.forEach((k, i) => frame.set(pathHash(k), OUT_PATH_LEN_AT + 1 + i * TRACE_HASH_BYTES))
+}
+
+/** The most repeaters an out path holds. */
+export const MAX_ROUTE_HOPS = MAX_PATH_SIZE / TRACE_HASH_BYTES
+
+/**
+ * Adds the node to the companion's contacts. Without a route the first
+ * request goes out flood and the reply teaches the companion a direct path;
+ * with one (from a trace that came back) requests go direct from the start.
+ */
+export function encodeAddContact(key: string, nodeType: string, name: string, route?: string[] | null): Uint8Array {
   const out = new Uint8Array(1 + 32 + 3 + MAX_PATH_SIZE + 32 + 4 + 8)
   let i = 0
   out[i++] = CMD_ADD_UPDATE_CONTACT
@@ -67,7 +88,30 @@ export function encodeAddContact(key: string, nodeType: string, name: string): U
   out[i++] = OUT_PATH_UNKNOWN
   i += MAX_PATH_SIZE
   out.set(enc.encode(name).subarray(0, 31), i)
+  if (route) setOutPath(out, route)
   return out // last advert time, lat, lon: zero
+}
+
+/** Does this contact (a RESP_CONTACT frame) have a known out path? */
+export const contactHasPath = (contact: Uint8Array) => contact[OUT_PATH_LEN_AT] !== OUT_PATH_UNKNOWN
+
+/**
+ * The contact (a RESP_CONTACT frame) written back with `route` as its out
+ * path, everything else kept: the update replaces every field.
+ */
+export function encodeContactRoute(contact: Uint8Array, route: string[]): Uint8Array {
+  const out = contact.slice()
+  out[0] = CMD_ADD_UPDATE_CONTACT
+  setOutPath(out, route)
+  return out
+}
+
+/** Forgets the contact's out path: the next request goes out flood. */
+export function encodeResetPath(key: string): Uint8Array {
+  const out = new Uint8Array(33)
+  out[0] = CMD_RESET_PATH
+  out.set(keyBytes(key), 1)
+  return out
 }
 
 export function encodeLogin(key: string, password: string): Uint8Array {
