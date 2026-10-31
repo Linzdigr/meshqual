@@ -76,6 +76,7 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("GET /api/health", s.health)
 	s.mux.HandleFunc("GET /api/config", s.config)
 	s.mux.HandleFunc("GET /api/nodes", s.nodes)
+	s.mux.HandleFunc("GET /api/nodes/search", s.searchNodes)
 	s.mux.HandleFunc("GET /api/nodes/{key}", s.node)
 	s.mux.HandleFunc("GET /api/links", s.links)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}", s.link)

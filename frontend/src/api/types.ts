@@ -243,6 +243,17 @@ export interface LinkDetail {
   distKm?: number
 }
 
+/** One node found by GET /api/nodes/search. */
+export interface NodeSearchHit {
+  key: string
+  name: string
+  nodeType: NodeProperties['nodeType']
+  lat: number
+  lon: number
+  regionName?: string
+  listenOnly?: boolean
+}
+
 export interface NodeDetail {
   node: NodeInfo
   neighbors: NodeNeighbor[]

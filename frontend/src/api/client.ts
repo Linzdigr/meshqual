@@ -10,6 +10,7 @@ import type {
   LinkProperties,
   NodeDetail,
   NodeProperties,
+  NodeSearchHit,
   ServerConfig,
 } from './types'
 
@@ -110,6 +111,10 @@ export const api = {
 
   nodes: (bbox: BBox | null, signal?: AbortSignal) =>
     get<FeatureCollection<NodeProperties>>(`/api/nodes?${bboxParam(bbox)}`, signal),
+
+  /** Nodes on the map whose name or key matches q, wherever they are. */
+  searchNodes: (q: string, signal?: AbortSignal) =>
+    get<{ nodes: NodeSearchHit[] }>(`/api/nodes/search?q=${encodeURIComponent(q)}`, signal),
 
   node: (key: string, signal?: AbortSignal) =>
     get<NodeDetail>(`/api/nodes/${encodeURIComponent(key)}`, signal),

@@ -13,6 +13,8 @@ import StatusBar from '@/components/StatusBar.vue'
 import LayersControl from '@/components/LayersControl.vue'
 import TraceControl from '@/components/TraceControl.vue'
 import CompanionButton from '@/components/CompanionButton.vue'
+import NodeSearch from '@/components/NodeSearch.vue'
+import type { NodeSearchHit } from '@/api/types'
 import { useTraceStore } from '@/stores/trace'
 import type { AltitudeRange } from '@/map/elevation'
 
@@ -248,6 +250,17 @@ function onSelectNode(key: string | null) {
   store.selectNode(key)
 }
 
+/** A node found by the search: selected (or added to a trace path) and framed with its neighbours. */
+function onSearchHit(h: NodeSearchHit) {
+  if (h.nodeType === 'companion' && !store.showCompanions) {
+    store.showCompanions = true
+    showToast('Compagnons affichés (C pour masquer)')
+  }
+  onSelectNode(h.key)
+  // A trace pick loads no node detail, which frames a selection (see above): frame it here.
+  if (trace.selecting) meshMap.value?.focusPoints([[h.lon, h.lat]], focusPadding())
+}
+
 // Picking a path wants the whole map: close any panel and its focus.
 watch(
   () => trace.selecting,
@@ -339,7 +352,9 @@ watch(
       :error="store.error ?? notice"
       :theme-mode="mode"
       @cycle-theme="cycle"
-    />
+    >
+      <NodeSearch @select="onSearchHit" />
+    </StatusBar>
 
     <main ref="mainEl">
       <MeshMap
