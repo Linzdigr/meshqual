@@ -86,6 +86,7 @@ type Pipeline struct {
 
 	decoded   atomic.Uint64
 	decodeErr atomic.Uint64
+	dupes     atomic.Uint64
 	written   atomic.Uint64
 	writeErr  atomic.Uint64
 
@@ -94,6 +95,7 @@ type Pipeline struct {
 	nodeBuf   map[string]NodeUpsert
 
 	traces *TraceDedup
+	obs    *ObsDedup
 }
 
 // NewPipeline builds a pipeline.
@@ -114,6 +116,7 @@ func NewPipeline(r *Resolver, a *Aggregator, sink Sink, h *hub.Hub, opt Pipeline
 		Resolver: r, Aggregator: a, sink: sink, hub: h, opt: opt, log: log,
 		nodeBuf: make(map[string]NodeUpsert),
 		traces:  NewTraceDedup(15 * time.Minute),
+		obs:     NewObsDedup(time.Minute),
 	}
 }
 
@@ -149,14 +152,16 @@ func (p *Pipeline) AddCompanionSamples(tag uint32, samples []Sample) int {
 type Stats struct {
 	Decoded      uint64 `json:"decoded"`
 	DecodeErrors uint64 `json:"decodeErrors"`
-	Written      uint64 `json:"written"`
-	WriteErrors  uint64 `json:"writeErrors"`
+	// Duplicates are observations delivered twice (two brokers bridged), dropped.
+	Duplicates  uint64 `json:"duplicates"`
+	Written     uint64 `json:"written"`
+	WriteErrors uint64 `json:"writeErrors"`
 }
 
 // Stats returns the counters.
 func (p *Pipeline) Stats() Stats {
 	return Stats{
-		Decoded: p.decoded.Load(), DecodeErrors: p.decodeErr.Load(),
+		Decoded: p.decoded.Load(), DecodeErrors: p.decodeErr.Load(), Duplicates: p.dupes.Load(),
 		Written: p.written.Load(), WriteErrors: p.writeErr.Load(),
 	}
 }
@@ -199,6 +204,10 @@ func (p *Pipeline) Run(ctx context.Context, in <-chan source.Observation) {
 }
 
 func (p *Pipeline) handle(obs source.Observation) {
+	if !p.obs.First(obs, time.Now()) {
+		p.dupes.Add(1)
+		return
+	}
 	d, err := Decode(obs, p.Resolver)
 	if err != nil {
 		p.decodeErr.Add(1)

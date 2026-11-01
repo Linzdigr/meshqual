@@ -174,7 +174,7 @@ export interface Health {
     unresolvedShare: number
     ambiguousShare: number
   }
-  pipeline: { decoded: number; decodeErrors: number; written: number; writeErrors: number }
+  pipeline: { decoded: number; decodeErrors: number; duplicates?: number; written: number; writeErrors: number }
   sources: SourceStats[]
   sse: { clients: number; dropped: number }
 }

@@ -168,6 +168,11 @@ position only later). Path hashes narrower than `minPathHashBytes` (default 2)
 are not attributed at all: with many known nodes, a 1-byte hash matching a
 single one is as likely an unknown relay sharing its byte.
 
+An observation delivered twice (same observer, direction and radio frame,
+path included, within a minute) is dropped: that is one reception reaching
+relayd by two ways, such as an observer publishing to two brokers bridged into
+ours. `/api/health` counts them under `pipeline.duplicates`.
+
 SNR colour thresholds (`-9 / -5 / 5` dB) are served by `/api/config`.
 
 ## Altitude and line of sight
