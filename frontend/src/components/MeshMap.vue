@@ -37,6 +37,7 @@ const emit = defineEmits<{
   moveend: [BBox]
   select: [string | null]
   selectNode: [string | null]
+  selectSite: [string]
   altitudeRange: [AltitudeRange | null]
 }>()
 
@@ -77,6 +78,7 @@ const map = useMapLibre({
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
   onSelectNode: (key) => emit('selectNode', key),
+  onSelectSite: (id) => emit('selectSite', id),
 })
 
 onMounted(() => map.mount())
@@ -172,6 +174,8 @@ defineExpose({
   setTraceLabels: (hops: { from: string; to: string; snr?: number }[]) => map.setTraceLabels(hops),
   /** Plays trace legs with the live-packet animation. */
   animateHops: (hops: { from: string; to: string; snr?: number }[]) => map.animateHops(hops),
+  /** Draws the proposed sites (siting/plan sitesGeoJSON). */
+  setSites: (fc: { type: 'FeatureCollection'; features: unknown[] }) => map.setSites(fc),
 })
 
 // Redrawn when nodes refresh too: the path is drawn from their positions.

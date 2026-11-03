@@ -39,6 +39,7 @@ export const LANES_SOURCE = 'lanes'
 /** The selected link's per-direction readings, one line feature per direction. */
 export const FOCUS_LABELS_SOURCE = 'focus-labels'
 const PROFILE_MARK_SOURCE = 'profile-mark'
+const SITING_SOURCE = 'siting'
 const TRACE_PATH_SOURCE = 'trace-path'
 const TRACE_LABELS_SOURCE = 'trace-labels'
 
@@ -61,6 +62,10 @@ const LAYER_NODE_CLOCK = 'nodes-clock'
 const LAYER_NODE_LABELS = 'nodes-labels'
 const LAYER_FOCUS_LABELS = 'focus-labels'
 const LAYER_PROFILE_MARK = 'profile-mark'
+const LAYER_SITE_LINKS = 'siting-links'
+const LAYER_SITE_RING = 'siting-ring'
+const LAYER_SITE_NUMBERS = 'siting-numbers'
+const SITE_RING = 'site-ring'
 const LAYER_TRACE_LINE = 'trace-path-line'
 const LAYER_TRACE_STOPS = 'trace-path-stops'
 const LAYER_TRACE_NUMBERS = 'trace-path-numbers'
@@ -410,6 +415,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [LANES_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [FOCUS_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [PROFILE_MARK_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [SITING_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [TRACE_PATH_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [TRACE_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ALTITUDE_SOURCE]: {
@@ -799,7 +805,92 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'circle-stroke-width': 2.5,
       },
     },
+    // Proposed sites ("Où placer un nœud ?"): the links each would make,
+    // dashed, then the turning yellow and black ring, numbered as in the panel.
+    {
+      id: LAYER_SITE_LINKS,
+      type: 'line' as const,
+      source: SITING_SOURCE,
+      filter: ['==', ['geometry-type'], 'LineString'] as ExpressionSpecification,
+      paint: {
+        'line-color': dark ? '#fab219' : '#b7791f',
+        'line-width': 1.8,
+        'line-dasharray': [3, 2],
+        'line-opacity': ['case', ['get', 'dim'], 0.2, 0.95] as ExpressionSpecification,
+      },
+    },
+    {
+      id: LAYER_SITE_RING,
+      type: 'symbol' as const,
+      source: SITING_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      layout: {
+        'icon-image': SITE_RING,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.45, 1] as ExpressionSpecification },
+    },
+    {
+      id: LAYER_SITE_NUMBERS,
+      type: 'symbol' as const,
+      source: SITING_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      layout: {
+        'text-field': ['get', 'n'] as ExpressionSpecification,
+        'text-size': 12,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': dark ? '#ffffff' : '#0b0b0b',
+        'text-halo-color': surface,
+        'text-halo-width': 2,
+      },
+    },
   ]
+}
+
+/**
+ * The proposed-site ring as an animated image: yellow and black dashes turning
+ * around the point, redrawn every frame while a site is on screen.
+ */
+function siteRingImage(m: maplibregl.Map): maplibregl.StyleImageInterface {
+  const size = 60 // 30 CSS px at pixelRatio 2
+  const r = size / 2 - 5
+  const dash = (2 * Math.PI * r) / 12
+  let ctx: CanvasRenderingContext2D | null = null
+  const image: maplibregl.StyleImageInterface = {
+    width: size,
+    height: size,
+    data: new Uint8Array(size * size * 4),
+    onAdd() {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = size
+      ctx = canvas.getContext('2d', { willReadFrequently: true })
+    },
+    render() {
+      if (!ctx) return false
+      ctx.clearRect(0, 0, size, size)
+      ctx.lineWidth = 6
+      ctx.setLineDash([])
+      ctx.strokeStyle = '#1a1a19'
+      ctx.beginPath()
+      ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = '#fab219'
+      ctx.setLineDash([dash, dash])
+      // One turn every 6 s.
+      ctx.lineDashOffset = -((performance.now() / 6000) * 2 * Math.PI * r)
+      ctx.beginPath()
+      ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2)
+      ctx.stroke()
+      image.data = ctx.getImageData(0, 0, size, size).data
+      m.triggerRepaint()
+      return true
+    },
+  }
+  return image
 }
 
 /**
@@ -875,6 +966,8 @@ export interface UseMapOptions {
   onViewChange?: (view: MapView) => void
   onSelectLink: (linkId: string | null) => void
   onSelectNode: (key: string | null) => void
+  /** A proposed site clicked on the map. */
+  onSelectSite?: (id: string) => void
 }
 
 export function useMapLibre(opts: UseMapOptions) {
@@ -882,6 +975,7 @@ export function useMapLibre(opts: UseMapOptions) {
   let ready = false
   let pendingLinks: FeatureCollection<LinkProperties> | null = null
   let pendingNodes: FeatureCollection<NodeProperties> | null = null
+  let pendingSites: { type: 'FeatureCollection'; features: unknown[] } | null = null
 
   /** Animated links; `local` ones come from a trace sent here, not from the server. */
   const active = new Map<
@@ -940,6 +1034,7 @@ export function useMapLibre(opts: UseMapOptions) {
       map.addImage(DIAMOND.dark, diamondImage(SURFACE_DARK, NO_DATA_DARK), { pixelRatio: 2 })
       map.addImage(PHONE.light, phoneImage(COMPANION_LIGHT, SURFACE_LIGHT), { pixelRatio: 2 })
       map.addImage(PHONE.dark, phoneImage(COMPANION_DARK, SURFACE_DARK), { pixelRatio: 2 })
+      map.addImage(SITE_RING, siteRingImage(map), { pixelRatio: 2 })
       addDataLayers()
       ready = true
       applyView()
@@ -948,6 +1043,7 @@ export function useMapLibre(opts: UseMapOptions) {
       applyBridge()
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
+      if (pendingSites) setSites(pendingSites)
       opts.onMoveEnd(bboxOf(map))
     })
 
@@ -994,7 +1090,22 @@ export function useMapLibre(opts: UseMapOptions) {
       return best
     }
 
+    const siteAt = (point: maplibregl.Point): string | null => {
+      if (!map) return null
+      const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+        [point.x - CLICK_TOLERANCE, point.y - CLICK_TOLERANCE],
+        [point.x + CLICK_TOLERANCE, point.y + CLICK_TOLERANCE],
+      ]
+      const id = map.queryRenderedFeatures(box, { layers: [LAYER_SITE_RING] })[0]?.properties?.['site']
+      return typeof id === 'string' ? id : null
+    }
+
     map.on('click', (e) => {
+      const site = siteAt(e.point)
+      if (site) {
+        opts.onSelectSite?.(site)
+        return
+      }
       const node = nodeAt(e.point)
       if (node) {
         opts.onSelectNode(node)
@@ -1011,7 +1122,7 @@ export function useMapLibre(opts: UseMapOptions) {
 
     map.on('mousemove', (e) => {
       if (!map) return
-      map.getCanvas().style.cursor = nodeAt(e.point) || hitAt(e.point).length > 0 ? 'pointer' : ''
+      map.getCanvas().style.cursor = siteAt(e.point) || nodeAt(e.point) || hitAt(e.point).length > 0 ? 'pointer' : ''
     })
   }
 
@@ -1403,6 +1514,9 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_SITE_NUMBERS,
+      LAYER_SITE_RING,
+      LAYER_SITE_LINKS,
       LAYER_TRACE_LABELS,
       LAYER_TRACE_NUMBERS,
       LAYER_TRACE_STOPS,
@@ -1611,6 +1725,13 @@ export function useMapLibre(opts: UseMapOptions) {
     src.setData({ type: 'FeatureCollection', features } as never)
   }
 
+  /** Proposed sites and their predicted links (siting/plan sitesGeoJSON). */
+  function setSites(fc: { type: 'FeatureCollection'; features: unknown[] }) {
+    const src = map?.getSource(SITING_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(fc as never)
+    else pendingSites = fc
+  }
+
   /** Shows or hides the "Rôle de pont" layer: node size and fill by level. */
   function applyBridge() {
     if (!map || !ready) return
@@ -1659,6 +1780,7 @@ export function useMapLibre(opts: UseMapOptions) {
     setTracePath,
     setTraceLabels,
     setTraceFocus,
+    setSites,
     focusLink,
     focusPoints,
   }

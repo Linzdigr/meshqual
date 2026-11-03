@@ -14,12 +14,16 @@ import LayersControl from '@/components/LayersControl.vue'
 import TraceControl from '@/components/TraceControl.vue'
 import CompanionButton from '@/components/CompanionButton.vue'
 import NodeSearch from '@/components/NodeSearch.vue'
+import SitingControl from '@/components/SitingControl.vue'
+import { useSitingStore } from '@/stores/siting'
+import { sitesGeoJSON, type Proposal } from '@/siting/plan'
 import type { NodeSearchHit } from '@/api/types'
 import { useTraceStore } from '@/stores/trace'
 import type { AltitudeRange } from '@/map/elevation'
 
 const store = useMeshStore()
 const trace = useTraceStore()
+const siting = useSitingStore()
 const { mode, dark, cycle } = useTheme()
 
 const selectedRef = computed(() => store.selectedLinkId)
@@ -261,6 +265,28 @@ function onSearchHit(h: NodeSearchHit) {
   if (trace.selecting) meshMap.value?.focusPoints([[h.lon, h.lat]], focusPadding())
 }
 
+// The siting panel takes the right side: a node or link panel would sit under it.
+watch(
+  () => siting.open,
+  (on) => {
+    if (!on) return
+    store.selectLink(null)
+    store.selectNode(null)
+  },
+)
+
+// Proposed sites on the map, the selected one in front of the others.
+watch(
+  () => [siting.result, siting.selected] as const,
+  ([r, sel]) => meshMap.value?.setSites(sitesGeoJSON(r, sel)),
+)
+
+/** Frames a proposed site with the nodes it would reach. */
+function focusSite(p: Proposal) {
+  const points: [number, number][] = [[p.lon, p.lat], ...p.links.map((l) => [l.lon, l.lat] as [number, number])]
+  meshMap.value?.focusPoints(points, focusPadding())
+}
+
 // Picking a path wants the whole map: close any panel and its focus.
 watch(
   () => trace.selecting,
@@ -380,6 +406,7 @@ watch(
         @moveend="onMoveEnd"
         @select="(id) => !trace.selecting && store.selectLink(id)"
         @select-node="onSelectNode"
+        @select-site="(id) => (siting.selected = id)"
         @altitude-range="(r) => (altitudeRange = r)"
       />
 
@@ -395,6 +422,7 @@ watch(
           :dark="dark"
           @toggle-bridge="store.bridge = !store.bridge"
         />
+        <SitingControl @focus="focusSite" />
       </div>
 
       <CompanionButton :compact="!!(store.selectedLinkId || store.selectedNodeKey)" />

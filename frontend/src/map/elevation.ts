@@ -99,14 +99,17 @@ export function coveringTiles(b: BBox, zoom: number, maxTiles = 16) {
 const tileCache = new Map<string, Promise<Float32Array | null>>()
 const TILE_CACHE_MAX = 64
 
+/** A tile slower than this counts as failed: one stalled request must not hold up the rest. */
+const TILE_TIMEOUT_MS = 15_000
+
 /** Decoded elevations of one 256×256 tile, or null when it fails to load. */
-function loadTile(z: number, x: number, y: number): Promise<Float32Array | null> {
+export function loadTile(z: number, x: number, y: number): Promise<Float32Array | null> {
   const url = TERRARIUM_URL.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y))
   let p = tileCache.get(url)
   if (!p) {
     p = (async () => {
       try {
-        const res = await fetch(url)
+        const res = await fetch(url, { signal: AbortSignal.timeout(TILE_TIMEOUT_MS) })
         if (!res.ok) return null
         const bitmap = await createImageBitmap(await res.blob())
         const canvas = document.createElement('canvas')
@@ -119,6 +122,8 @@ function loadTile(z: number, x: number, y: number): Promise<Float32Array | null>
         for (let i = 0; i < out.length; i++) out[i] = terrarium(px[i * 4]!, px[i * 4 + 1]!, px[i * 4 + 2]!)
         return out
       } catch {
+        // A network failure is worth another try later, unlike a missing tile.
+        tileCache.delete(url)
         return null
       }
     })()
