@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import type { BBox } from '@/api/types'
 import { useMeshStore } from '@/stores/mesh'
-import type { PlanResult, SiteNode } from '@/siting/plan'
+import type { PlanResult, SiteEdge, SiteNode } from '@/siting/plan'
 import { loadDem, MAX_VIEW_KM, runPlan, viewWidthKm } from '@/siting/run'
 
 /** Node types a site links to: the infrastructure, not companions or sensors. */
@@ -49,15 +49,18 @@ export const useSitingStore = defineStore('siting', () => {
   let cancel: (() => void) | null = null
 
   /** The repeaters and room servers in view, plus those at the far end of a link in view. */
-  function graphInput(): { nodes: SiteNode[]; edges: [string, string][] } {
+  function graphInput(): { nodes: SiteNode[]; edges: SiteEdge[] } {
+    const b = mesh.bbox
     const nodes = new Map<string, SiteNode>()
     for (const f of mesh.visibleNodes.features) {
       const p = f.properties
       if (!INFRA.has(p.nodeType) || p.listenOnly) continue
       const [lon, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates
-      nodes.set(p.key, { key: p.key, name: p.name, lon, lat })
+      nodes.set(p.key, { key: p.key, name: p.name, lon, lat, inView: true })
     }
-    const edges: [string, string][] = []
+    const within = ([lon, lat]: [number, number]) =>
+      !!b && lon >= b.minLng && lon <= b.maxLng && lat >= b.minLat && lat <= b.maxLat
+    const edges: SiteEdge[] = []
     for (const f of mesh.visibleLinks.features) {
       const p = f.properties
       if (!INFRA.has(p.aType ?? '') || !INFRA.has(p.bType ?? '')) continue
@@ -66,8 +69,10 @@ export const useSitingStore = defineStore('siting', () => {
         [p.aKey, p.aName, c[0]],
         [p.bKey, p.bName, c[c.length - 1]],
       ]
-      for (const [key, name, at] of ends) if (!nodes.has(key) && at) nodes.set(key, { key, name, lon: at[0], lat: at[1] })
-      edges.push([p.aKey, p.bKey])
+      for (const [key, name, at] of ends) {
+        if (!nodes.has(key) && at) nodes.set(key, { key, name, lon: at[0], lat: at[1], inView: within(at) })
+      }
+      edges.push({ a: p.aKey, b: p.bKey, kind: p.kind, snr: p.snrQuality ?? null })
     }
     return { nodes: [...nodes.values()], edges }
   }

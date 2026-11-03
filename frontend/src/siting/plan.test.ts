@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planSites, type PlanInput, type SiteNode } from './plan'
+import { planSites, type PlanInput, type SiteEdge, type SiteNode } from './plan'
 import type { DemGrid } from './terrain'
 
 const Z = 10
@@ -19,10 +19,19 @@ function flatDem(b: PlanInput['bbox'], elev: number): DemGrid {
   return { z: Z, tiles }
 }
 
-const node = (key: string, lon: number, lat: number): SiteNode => ({ key, name: key, lon, lat })
+const node = (key: string, lon: number, lat: number): SiteNode => ({ key, name: key, lon, lat, inView: true })
 
-function input(nodes: SiteNode[], edges: [string, string][], bbox: PlanInput['bbox']): PlanInput {
-  return { bbox, nodes, edges, dem: flatDem(bbox, 50), siteAntennaM: 10, nodeAntennaM: 10, usableSnrDb: -5 }
+/** Pairs as trace links at +5 dB, or full edges. */
+function input(nodes: SiteNode[], edges: ([string, string] | SiteEdge)[], bbox: PlanInput['bbox']): PlanInput {
+  return {
+    bbox,
+    nodes,
+    edges: edges.map((e) => (Array.isArray(e) ? { a: e[0], b: e[1], kind: 'trace', snr: 5 } : e)),
+    dem: flatDem(bbox, 50),
+    siteAntennaM: 10,
+    nodeAntennaM: 10,
+    usableSnrDb: -5,
+  }
 }
 
 // Around Rennes: a network to the west, a pair of nodes ~30 km east.
@@ -38,8 +47,8 @@ describe('planSites', () => {
   it('joins an island with a single site, and stops there', () => {
     const island = [node('X', -1.45, 48.1), node('Y', -1.43, 48.12)]
     const r = planSites(input([...MAIN, ...island], [...MAIN_EDGES, ['X', 'Y']], BBOX))
-    expect(r.islands).toHaveLength(1)
-    expect(r.islands[0]!.joined).toBe(true)
+    expect(r.zones).toHaveLength(1)
+    expect(r.zones[0]!.joined).toBe(true)
     expect(r.proposals).toHaveLength(1)
     expect(r.proposals[0]!.joins[0]!.size).toBe(2)
   })
@@ -51,10 +60,31 @@ describe('planSites', () => {
     expect(r.proposals).toHaveLength(0)
   })
 
+  it('counts a zone held only by an unstable link as cut off', () => {
+    const zone = [node('X', -1.45, 48.1), node('Y', -1.43, 48.12)]
+    const weak: SiteEdge = { a: 'C', b: 'X', kind: 'trace', snr: -12 }
+    const r = planSites(input([...MAIN, ...zone], [...MAIN_EDGES, ['X', 'Y'], weak], BBOX))
+    expect(r.zones).toHaveLength(1)
+    expect(r.zones[0]!.today?.snr).toBe(-12)
+    expect(r.zones[0]!.joined).toBe(true)
+    expect(r.unstable).toBe(1)
+  })
+
+  it('chains sites when one cannot reach both sides', () => {
+    // ~53 km apart on flat ground, where 10 m masts reach ~22 km: two sites in a row.
+    const wide = { minLng: -2.6, minLat: 47.9, maxLng: -1.6, maxLat: 48.3 }
+    const net = [node('A', -2.5, 48.1), node('B', -2.48, 48.12), node('C', -2.46, 48.1)]
+    const far = [node('X', -1.75, 48.1), node('Y', -1.73, 48.12)]
+    const r = planSites(input([...net, ...far], [...MAIN_EDGES, ['X', 'Y']], wide))
+    expect(r.zones[0]!.joined).toBe(true)
+    expect(r.proposals.length).toBeGreaterThanOrEqual(2)
+    expect(r.proposals.length).toBeLessThanOrEqual(3)
+  })
+
   it('proposes nothing for a well-meshed view', () => {
     const r = planSites(input(MAIN, MAIN_EDGES, BBOX))
     expect(r.proposals).toHaveLength(0)
-    expect(r.islands).toHaveLength(0)
+    expect(r.zones).toHaveLength(0)
     expect(r.cutNodes).toHaveLength(0)
   })
 

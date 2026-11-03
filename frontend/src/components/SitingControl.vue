@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useSitingStore } from '@/stores/siting'
-import { MIN_CUT, SNR_REF_DB, type Proposal } from '@/siting/plan'
+import { useMeshStore } from '@/stores/mesh'
+import { MAX_CHAIN, MIN_CUT, SNR_REF_DB, TOPO_RELIABLE_KM, type Proposal, type Zone } from '@/siting/plan'
 import { MAX_VIEW_KM } from '@/siting/run'
 
 const emit = defineEmits<{ focus: [Proposal] }>()
 
 const siting = useSitingStore()
 const r = computed(() => siting.result)
+const mesh = useMeshStore()
+const usable = computed(() => mesh.snrThresholds[1] ?? -5)
 const expanded = ref<string | null>(null)
 
 // A site clicked on the map opens its entry.
@@ -30,19 +33,25 @@ const summary = computed(() => {
   const res = r.value
   if (!res) return null
   return {
-    islands: res.islands.length,
-    joined: res.islands.filter((i) => i.joined).length,
+    zones: res.zones.length,
+    joined: res.zones.filter((z) => z.joined).length,
     cuts: res.cutNodes.length,
     backed: res.cutNodes.filter((c) => c.after < MIN_CUT).length,
   }
 })
-const unresolvedIslands = computed(() => r.value?.islands.filter((i) => !i.joined) ?? [])
 const unresolvedCuts = computed(() => r.value?.cutNodes.filter((c) => c.after >= MIN_CUT) ?? [])
 
 const fmtSnr = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1).replace('.', ',')} dB`
 const fmtKm = (v: number) => `${v.toFixed(1).replace('.', ',')} km`
 const clearanceLabel = (c: number) => (c >= 0.6 ? 'dégagée' : c >= 0 ? 'partielle' : 'obstruée')
 const clearanceClass = (c: number) => (c >= 0.6 ? 'clear' : c >= 0 ? 'partial' : 'blocked')
+/** What holds a zone to the network today: its best link, unreliable by definition. */
+function todayLabel(z: Zone): string {
+  const t = z.today
+  if (!t) return 'aucun lien avec le réseau'
+  const q = t.snr === null ? `topologique, ${fmtKm(t.distKm)}` : `${fmtSnr(t.snr)}, ${fmtKm(t.distKm)}`
+  return `au mieux ${t.from} – ${t.to} (${q})`
+}
 const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).join(', ')}…`)
 </script>
 
@@ -71,8 +80,9 @@ const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).
         <button type="button" class="x" aria-label="Fermer" @click="siting.open = false">✕</button>
       </header>
       <p class="lead">
-        Sites à fort intérêt pour la vue en cours : d'abord relier les îlots au réseau, puis doubler les nœuds dont
-        d'autres dépendent seuls. Seulement les sites nécessaires.
+        Sites à fort intérêt pour la vue en cours : d'abord relier au réseau les zones qui n'y tiennent que par des
+        liens instables, quitte à enchaîner jusqu'à {{ MAX_CHAIN }} sites, puis doubler les nœuds dont d'autres
+        dépendent seuls. Seulement les sites nécessaires.
       </p>
 
       <div class="controls">
@@ -104,11 +114,11 @@ const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).
 
       <template v-if="r && summary && siting.state !== 'running'">
         <p class="summary">
-          <template v-if="!summary.islands && !summary.cuts">Aucune faiblesse dans la vue : rien à proposer.</template>
+          <template v-if="!summary.zones && !summary.cuts">Aucune faiblesse dans la vue : rien à proposer.</template>
           <template v-else>
             <b>{{ r.proposals.length }} site{{ r.proposals.length > 1 ? 's' : '' }}</b>
-            pour {{ summary.joined }} îlot{{ summary.joined > 1 ? 's' : '' }} relié{{ summary.joined > 1 ? 's' : '' }} sur
-            {{ summary.islands }} et {{ summary.backed }} point{{ summary.backed > 1 ? 's' : '' }} de passage doublé{{
+            pour {{ summary.joined }} zone{{ summary.joined > 1 ? 's' : '' }} reliée{{ summary.joined > 1 ? 's' : '' }} sur
+            {{ summary.zones }} et {{ summary.backed }} point{{ summary.backed > 1 ? 's' : '' }} de passage doublé{{
               summary.backed > 1 ? 's' : ''
             }}
             sur {{ summary.cuts }}.
@@ -149,15 +159,23 @@ const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).
           </li>
         </ol>
 
-        <p v-if="unresolvedIslands.length || unresolvedCuts.length" class="unresolved">
+        <ul v-if="r.zones.length" class="zones">
+          <li v-for="z in r.zones" :key="z.names.join()" :class="{ joined: z.joined }">
+            <b>{{ names(z.names) }}</b> ({{ z.size }} nœuds{{ z.joined ? ', reliée' : ', sans solution dans la vue' }}) :
+            {{ todayLabel(z) }}
+          </li>
+        </ul>
+
+        <p v-if="unresolvedCuts.length" class="unresolved">
           Sans solution dans la vue :
-          <template v-for="i in unresolvedIslands" :key="i.names.join()"> îlot {{ names(i.names) }} ·</template>
           <template v-for="c in unresolvedCuts" :key="c.key"> {{ c.name }} ({{ c.after }} dépendants) ·</template>
           aucun point haut n'atteint les deux côtés.
         </p>
 
         <p class="caveat">
-          {{ r.candidates }} points hauts évalués. Relief nu (sans bâtiments ni arbres), SNR estimé par la perte en
+          Liens fiables : traces et mesures à {{ usable }} dB ou mieux, liens topologiques de moins de
+          {{ TOPO_RELIABLE_KM }} km ; {{ r.unstable }} liens instables ne comptent pas. {{ r.candidates }} points hauts
+          évalués. Relief nu (sans bâtiments ni arbres), SNR estimé par la perte en
           espace libre et le pire obstacle (référence {{ SNR_REF_DB }} dB, non calée sur les mesures) : une piste pour
           un repérage sur place, pas un plan. Les {{ r.unlinked }} nœuds sans aucun lien sont ignorés : l'absence de lien
           ne prouve pas l'isolement.
@@ -380,6 +398,18 @@ li.open .site {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.zones {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.zones li.joined b {
+  color: var(--status-good);
 }
 
 .reach {

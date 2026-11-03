@@ -201,23 +201,27 @@ SNR colour thresholds (`-9 / -5 / 5` dB) are served by `/api/config`.
 ## Where to put a node
 
 The target button under **Calques** proposes sites for new repeaters in the
-current view (80 km wide at most), computed in the browser. Its first priority
-is joining islands, groups of nodes with no path to the main network in view.
-Then it backs up cut nodes, which five or more nodes depend on alone. Nodes
-with no link at all are left out: no link is no proof of isolation.
+current view (80 km wide at most), computed in the browser.
 
+- Only reliable links hold the network together: traces and measurements at
+  −5 dB or better, and topology links under 25 km. A zone joined to the rest by
+  unstable links only counts as cut off. Brocéliande, held to Rennes at −6 to
+  −12 dB over 30 to 50 km, is one such zone.
+- Zones come first. Each gets the shortest chain of new sites, 1 to 3 in a row,
+  over the high points of the view, picking the strongest among the shortest.
+  Cut nodes come next: nodes that five or more others depend on alone. A site
+  counts only if it backs one up fully.
 - Candidate sites are the high points of the view, read from the Terrain Tiles
-  elevation.
-- For each candidate, links to the repeaters and room servers within 50 km are
-  predicted over the bare-earth profile: free-space loss, plus a single
-  knife-edge for the worst obstacle, with k = 4/3.
-- A link counts from −5 dB predicted SNR. That SNR uses a fixed 120 dB
-  reference; it is not calibrated on the measured links yet.
-- Sites are added one at a time, as long as one still resolves a weakness. When
-  no single site reaches both sides of an island, a relay pair is tried. A site
-  the others made redundant is dropped.
+  elevation. For each one, links are predicted over the bare-earth profile:
+  free-space loss, plus a single knife-edge for the worst obstacle, with
+  k = 4/3. The SNR uses a fixed 120 dB reference and is not calibrated on the
+  measured links yet, so a predicted link must clear the bar by 3 dB.
+- Sites are added only while they resolve something, and a site the others
+  made redundant is dropped. Nodes with no link at all are left out, because no
+  link is no proof of isolation.
 - Proposed sites are drawn with a turning yellow and black ring, each with its
-  most useful predicted links.
+  most useful predicted links. The panel lists every zone with the best link it
+  has with the network today.
 
 ## Traces from a companion
 
