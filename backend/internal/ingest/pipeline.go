@@ -63,6 +63,10 @@ type NodeUpsert struct {
 	PathHashSize    uint8
 	RegionScope     RegionScope
 	RegionName      string
+	// ClockOffset and ClockAt: see Node; ClockAt zero when this advert was
+	// not the first reception of its kind.
+	ClockOffset time.Duration
+	ClockAt     time.Time
 }
 
 // PipelineOptions configures the pipeline.
@@ -232,13 +236,20 @@ func (p *Pipeline) handle(obs source.Observation) {
 	if d.Advert != nil {
 		ts := int64(d.Advert.Timestamp)
 		k := d.Advert.PublicKeyHex()
-		p.nodeBuf[k] = NodeUpsert{
+		up := NodeUpsert{
 			Key: k, Name: d.Advert.Name, NodeType: d.Advert.NodeType,
 			Latitude: d.Advert.Latitude, Longitude: d.Advert.Longitude, AdvertTimestamp: &ts,
 			PathHashSize: AdvertHashSize(d.Packet),
 			RegionScope:  AdvertScope(d.Packet),
 			RegionName:   p.Resolver.Regions.Match(d.Packet),
 		}
+		if prev, ok := p.nodeBuf[k]; ok && !prev.ClockAt.IsZero() {
+			up.ClockOffset, up.ClockAt = prev.ClockOffset, prev.ClockAt
+		}
+		if d.Clock != nil {
+			up.ClockOffset, up.ClockAt = d.Clock.Offset, d.Clock.At
+		}
+		p.nodeBuf[k] = up
 	}
 	full := len(p.sampleBuf) >= p.opt.FlushSize
 	p.mu.Unlock()

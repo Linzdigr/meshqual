@@ -42,6 +42,8 @@ type Deps struct {
 	NodeMaxAge time.Duration
 	// RelayWindow: see ingest.Node.ListenOnly. 0 means 48 h.
 	RelayWindow time.Duration
+	// ClockOffsetMax is served by /api/config for the map's clock flag.
+	ClockOffsetMax time.Duration
 	// SubmitToken enables POST /api/measurements for browsers that hold it.
 	SubmitToken string
 	// Elevation profiles for the line-of-sight check; nil disables it.

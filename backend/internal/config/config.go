@@ -44,6 +44,10 @@ type Config struct {
 	// RelayWindow: an observer not named in any path for this long counts as
 	// listen-only (its repeat is off). Its links leave the map.
 	RelayWindow Duration `json:"relayWindow"`
+	// ClockOffsetMax: a node whose adverts are timed further than this from
+	// our clock is flagged on the map. Peers drop adverts older than the last
+	// one they kept, so a clock set back (a reboot without RTC) gets ignored.
+	ClockOffsetMax Duration `json:"clockOffsetMax"`
 	// FramesPerLink is how many recent frames the detail panel can show.
 	FramesPerLink int `json:"framesPerLink"`
 	// SNRSamplesPerLink bounds the sample ring the exact percentiles come from.
@@ -120,6 +124,7 @@ func Default() Config {
 		MeasureRetention:     Duration(14 * 24 * time.Hour),
 		NodeMaxAge:           Duration(48 * time.Hour),
 		RelayWindow:          Duration(48 * time.Hour),
+		ClockOffsetMax:       Duration(10 * time.Minute),
 		RegionNames:          DefaultRegionNames(),
 		FramesPerLink:        20,
 		SNRSamplesPerLink:    256,

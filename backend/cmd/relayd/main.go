@@ -97,6 +97,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 			if n.LastRelayed != nil {
 				node.LastRelayed = *n.LastRelayed
 			}
+			if n.ClockOffsetSec != nil && n.ClockAt != nil {
+				node.ClockOffset, node.ClockAt = time.Duration(*n.ClockOffsetSec)*time.Second, *n.ClockAt
+			}
 			resolver.Upsert(node)
 		}
 		log.Info("resolver warmed", "nodes", len(nodes))
@@ -163,6 +166,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
 		RelayWindow:          cfg.RelayWindow.D(),
+		ClockOffsetMax:       cfg.ClockOffsetMax.D(),
 		SubmitToken:          cfg.SubmitToken,
 		Profiles:             profiler(cfg),
 		LosParams:            los.Params{FreqMHz: cfg.LosFreqMHz, AntennaM: cfg.LosAntennaM, K: 4.0 / 3.0},

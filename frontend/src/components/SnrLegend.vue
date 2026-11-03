@@ -4,6 +4,8 @@ import { snrBuckets, type SnrPalette } from '@/styles/scale'
 import type { LinkKind } from '@/api/types'
 import type { ViewMode } from '@/map/lanes'
 import WarnIcon from './WarnIcon.vue'
+import ClockIcon from './ClockIcon.vue'
+import { formatOffset } from '@/map/clock'
 import type { NodeIssue } from '@/map/nodeIssues'
 
 const props = defineProps<{
@@ -24,6 +26,10 @@ const props = defineProps<{
   companionCount: number
   showCompanions: boolean
   issues: NodeIssue[]
+  /** Nodes in view whose clock is off, whether the clocks show, and from what offset. */
+  clockCount: number
+  clock: boolean
+  clockMaxSec: number
   /** Narrow screens only: whether the details under the mode switch are shown. */
   open: boolean
   /** How long a measurement stays on the map, in days. */
@@ -37,6 +43,7 @@ const emit = defineEmits<{
   setPalette: [SnrPalette]
   'update:open': [boolean]
   toggleIssue: [NodeIssue]
+  toggleClock: []
 }>()
 
 const palettes: { id: SnrPalette; label: string; hint: string }[] = [
@@ -133,7 +140,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           </li>
         </ul>
         <p class="caveat">
-          Une mesure reste affichée {{ retentionDays }} jours ; le trait pâlit à mesure qu'elle vieillit.
+          Une mesure reste affichée {{ retentionDays }} jours ; le lien pâlit selon son ancienneté.
         </p>
       </div>
 
@@ -142,7 +149,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
         <ul class="lanes">
           <li>
             <span class="lane pair" aria-hidden="true" />
-            <span>une voie par sens, à droite du sens de circulation</span>
+            <span>une voie par sens</span>
           </li>
           <li>
             <span class="lane missing" aria-hidden="true" />
@@ -155,8 +162,8 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           <span class="mono count">{{ asymCount }}</span>
         </label>
         <p class="caveat">
-          Déséquilibré : les deux sens sont mesurés et leurs SNR diffèrent d'au moins
-          {{ asymThreshold }} dB. La case masque tous les autres liens.
+          Déséquilibré : les SNR diffèrent d'au moins
+          {{ asymThreshold }} dB d'un sens à l'autre. Masque les autres liens.
         </p>
       </div>
 
@@ -179,8 +186,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           </li>
         </ul>
         <p class="caveat">
-          Un lien topologique prouve que les deux relais s'entendent, mais le champ
-          <code>path</code> ne transporte que des hashs de routage : aucun SNR connu pour le moment.
+          Un lien topologique prouve que les deux relais s'entendent mais aucune info SNR n'est connue pour le moment.
         </p>
       </div>
 
@@ -231,6 +237,18 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           Répéteurs et room servers dont les annonces partent sans région : les répéteurs réglés en
           <code>region denyf *</code> les ignorent. Régler <code>region default &lt;nom&gt;</code> puis
           <code>region save</code>.
+        </p>
+      </div>
+
+      <div class="block">
+        <label class="only issue clock">
+          <input type="checkbox" :checked="clock" @change="emit('toggleClock')" />
+          <ClockIcon />
+          <span>Horloge décalée</span>
+          <span class="mono count">{{ clockCount }}</span>
+        </label>
+        <p class="caveat">
+          Annonces datées à plus de {{ formatOffset(clockMaxSec).slice(1) }} de l'heure réelle ! Noeud à synchroniser.
         </p>
       </div>
     </div>
@@ -474,6 +492,17 @@ ul {
 .only.issue + .caveat {
   margin-top: 3px;
   padding-left: 30px;
+}
+
+/* The clock's own switch: checkbox, clock, label, count on one line. */
+.only.issue.clock {
+  grid-template-columns: auto auto 1fr auto;
+  margin-top: 0;
+  padding-left: 0;
+}
+
+.only.issue.clock + .caveat {
+  padding-left: 0;
 }
 
 .palettes {

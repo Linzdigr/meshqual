@@ -47,6 +47,10 @@ type nodeInfo struct {
 	ListenOnly bool `json:"listenOnly,omitempty"`
 	// Observer: publishes to an MQTT broker (ingest.Node.IsObserver).
 	Observer bool `json:"observer,omitempty"`
+	// ClockOffsetSec is the node's clock minus ours at its latest advert, and
+	// ClockAt when that was; omitted until an advert has been timed.
+	ClockOffsetSec *int64     `json:"clockOffsetSec,omitempty"`
+	ClockAt        *time.Time `json:"clockAt,omitempty"`
 }
 
 type neighbor struct {
@@ -160,7 +164,7 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) info(key string) nodeInfo {
 	n, _ := s.d.Resolver.Get(key)
-	return nodeInfo{
+	info := nodeInfo{
 		Key: key, Name: n.Name, NodeType: meshcore.AdvTypeName(n.NodeType),
 		Latitude: n.Latitude, Longitude: n.Longitude, PathHashSize: n.PathHashSize,
 		RegionScope: n.RegionScope.String(),
@@ -168,4 +172,9 @@ func (s *Server) info(key string) nodeInfo {
 		ListenOnly:  s.listenOnly(n),
 		Observer:    n.IsObserver(),
 	}
+	if !n.ClockAt.IsZero() {
+		off, at := int64(n.ClockOffset/time.Second), n.ClockAt
+		info.ClockOffsetSec, info.ClockAt = &off, &at
+	}
+	return info
 }

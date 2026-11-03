@@ -21,6 +21,8 @@ const props = defineProps<{
   palette: SnrPalette
   measureRetentionSec: number
   issues: NodeIssue[]
+  /** Clock offset (s) from which a node gets the clock; null hides the clocks. */
+  clockMaxSec: number | null
   altitude: boolean
   /** The "Rôle de pont" layer. */
   bridge: boolean
@@ -49,6 +51,7 @@ const altitudeRef = ref(props.altitude)
 const bridgeRef = ref(props.bridge)
 const retentionRef = ref(props.measureRetentionSec)
 const issuesRef = ref(props.issues)
+const clockMaxRef = ref(props.clockMaxSec)
 
 // The view the user left on their last visit, if any: it wins over framing
 // the whole mesh, so a reload lands where they were.
@@ -69,6 +72,7 @@ const map = useMapLibre({
   bridge: bridgeRef,
   measureRetentionSec: retentionRef,
   issues: issuesRef,
+  clockMaxSec: clockMaxRef,
   onAltitudeRange: (r) => emit('altitudeRange', r),
   onMoveEnd: (b) => emit('moveend', b),
   onSelectLink: (id) => emit('select', id),
@@ -123,6 +127,13 @@ watch(
   () => props.issues,
   (i) => {
     issuesRef.value = i
+    map.applyView()
+  },
+)
+watch(
+  () => props.clockMaxSec,
+  (v) => {
+    clockMaxRef.value = v
     map.applyView()
   },
 )

@@ -25,11 +25,16 @@ func (a Sink) MarkRelayed(ctx context.Context, at map[string]time.Time) error {
 func (a Sink) UpsertNodes(ctx context.Context, nodes []ingest.NodeUpsert) error {
 	rows := make([]NodeRow, 0, len(nodes))
 	for _, n := range nodes {
-		rows = append(rows, NodeRow{
+		row := NodeRow{
 			Key: n.Key, Name: n.Name, NodeType: n.NodeType,
 			Latitude: n.Latitude, Longitude: n.Longitude, AdvertTimestamp: n.AdvertTimestamp,
 			PathHashSize: n.PathHashSize, RegionScope: uint8(n.RegionScope), RegionName: n.RegionName,
-		})
+		}
+		if !n.ClockAt.IsZero() {
+			off, at := int64(n.ClockOffset/time.Second), n.ClockAt
+			row.ClockOffsetSec, row.ClockAt = &off, &at
+		}
+		rows = append(rows, row)
 	}
 	return a.S.UpsertNodes(ctx, rows)
 }

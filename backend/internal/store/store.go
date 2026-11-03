@@ -24,9 +24,12 @@ type NodeRow struct {
 	PathHashSize    uint8 // 0: unknown
 	RegionScope     uint8 // ingest.RegionScope; 0: unknown
 	RegionName      string
-	LastRelayed     *time.Time
-	FirstSeen       time.Time
-	LastSeen        time.Time
+	// ClockOffsetSec and ClockAt: see ingest.Node; nil when never timed.
+	ClockOffsetSec *int64
+	ClockAt        *time.Time
+	LastRelayed    *time.Time
+	FirstSeen      time.Time
+	LastSeen       time.Time
 }
 
 // ObservationRow is a persisted reception.

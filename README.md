@@ -155,6 +155,13 @@ trying candidates: `regionNames` (defaults: common French names such as `eu`,
 `fr`, `fr-bre`, `fr-35`, `bzh`, regions and departments), plus any listed in
 `MESHQUAL_REGION_NAMES` (comma-separated). Private (`$`) regions cannot be named.
 
+Adverts carry the sender's clock. relayd compares it with its own when an
+advert first arrives, and the map puts a clock beside nodes more than
+`clockOffsetMax` (default 10 min) off. Peers drop an advert older than the last
+one they kept from a node, so a clock set back (a reboot without RTC) leaves the
+node unheard. With a companion connected, the node panel can set a late clock
+(`time <now>`); the firmware refuses to move a clock back.
+
 An observer (publishing to our brokers, or named "OBS" / "Observer") that no
 path has named as a relay for `relayWindow` (default 48 h) is listen-only: its
 repeat is off, so it is drawn as a diamond and its links stay off the map and

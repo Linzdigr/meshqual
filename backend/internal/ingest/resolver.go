@@ -38,6 +38,14 @@ type Node struct {
 	// Observer: the node has published what it hears to one of our brokers.
 	// Set on the copies Get and Nodes return, from Resolver.observers.
 	Observer bool
+	// ClockOffset is the node's clock minus ours when its latest advert first
+	// reached us (adverts carry the sender's time), and ClockAt when that was.
+	// Zero ClockAt: no advert timed yet. Propagation adds a few seconds at most.
+	ClockOffset time.Duration
+	ClockAt     time.Time
+	// advertTS is the timestamp of the advert ClockOffset was taken from, so
+	// further receptions of that advert, later by nature, do not re-time it.
+	advertTS uint32
 }
 
 // observerName catches observers feeding other brokers than ours: by
@@ -152,6 +160,10 @@ func (r *Resolver) Upsert(n Node) (*Node, bool) {
 	if n.RegionScope != ScopeUnknown && (n.RegionScope != cur.RegionScope || n.RegionName != cur.RegionName) {
 		cur.RegionScope, cur.RegionName, changed = n.RegionScope, n.RegionName, true
 	}
+	// From storage at startup; NoteClock times live adverts.
+	if n.ClockAt.After(cur.ClockAt) {
+		cur.ClockOffset, cur.ClockAt = n.ClockOffset, n.ClockAt
+	}
 	// Not a change to persist: the database keeps its own last_seen.
 	if n.LastHeard.After(cur.LastHeard) {
 		cur.LastHeard = n.LastHeard
@@ -255,6 +267,23 @@ func (r *Resolver) MarkRelay(key string, at time.Time) {
 			n.LastRelayed = at
 		}
 	}
+}
+
+// NoteClock times a node's advert against our clock: ts is the advert's
+// timestamp, now when it reached relayd. Only the first reception of each
+// advert counts; the others came the long way round. Returns the offset and
+// whether it was taken (a new advert from a known node).
+func (r *Resolver) NoteClock(key string, ts uint32, now time.Time) (time.Duration, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := r.nodes[strings.ToUpper(key)]
+	if n == nil || ts == n.advertTS {
+		return 0, false
+	}
+	n.advertTS = ts
+	n.ClockOffset = time.Unix(int64(ts), 0).Sub(now).Round(time.Second)
+	n.ClockAt = now
+	return n.ClockOffset, true
 }
 
 // MarkObserver records that key published what it hears, at the given time:

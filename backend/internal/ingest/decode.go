@@ -4,15 +4,25 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"time"
 
 	"github.com/yvanferez/meshqual/backend/internal/meshcore"
 	"github.com/yvanferez/meshqual/backend/internal/source"
 )
 
+// ClockReading is how far a node's clock was from ours, and when.
+type ClockReading struct {
+	Offset time.Duration
+	At     time.Time
+}
+
 // Decoded is everything one observation yields.
 type Decoded struct {
-	Packet  *meshcore.Packet
-	Advert  *meshcore.Advert
+	Packet *meshcore.Packet
+	Advert *meshcore.Advert
+	// Clock is set when this advert was the first of its kind to reach us:
+	// how far the sender's clock is from ours.
+	Clock   *ClockReading
 	Trace   *meshcore.Trace
 	Samples []Sample
 
@@ -59,6 +69,11 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 				RegionName:   r.Regions.Match(pkt),
 				LastHeard:    obs.ReceivedAt,
 			})
+			// Our own clock, not the observer's: observers drift too.
+			now := time.Now().UTC()
+			if off, ok := r.NoteClock(adv.PublicKeyHex(), adv.Timestamp, now); ok {
+				d.Clock = &ClockReading{Offset: off, At: now}
+			}
 		}
 	}
 

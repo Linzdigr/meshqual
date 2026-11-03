@@ -635,3 +635,32 @@ func TestNarrowPathHashesAreNotAttributed(t *testing.T) {
 		t.Errorf("2-byte path: %d samples, want a topology link and the measured last hop", len(d.Samples))
 	}
 }
+
+func TestNoteClockTimesEachAdvertOnce(t *testing.T) {
+	r := NewResolver()
+	r.Upsert(Node{Key: "AB", Name: "n"})
+	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+
+	// A clock set back to May 2024: a reboot without RTC.
+	ts := uint32(time.Date(2024, 5, 15, 0, 0, 0, 0, time.UTC).Unix())
+	off, ok := r.NoteClock("ab", ts, now)
+	if !ok || off > -2*365*24*time.Hour { // about 2.5 years behind
+		t.Fatalf("offset = %v, %v", off, ok)
+	}
+	// The same advert again, later: not re-timed.
+	if _, ok := r.NoteClock("AB", ts, now.Add(time.Minute)); ok {
+		t.Error("a second reception of the same advert was timed")
+	}
+	// A new advert from a synced clock, 3 s in transit.
+	off, ok = r.NoteClock("AB", uint32(now.Unix()), now.Add(3*time.Second))
+	if !ok || off != -3*time.Second {
+		t.Errorf("offset = %v, %v, want -3s", off, ok)
+	}
+	n, _ := r.Get("AB")
+	if n.ClockOffset != -3*time.Second || !n.ClockAt.Equal(now.Add(3*time.Second)) {
+		t.Errorf("node clock = %v at %v", n.ClockOffset, n.ClockAt)
+	}
+	if _, ok := r.NoteClock("CD", ts, now); ok {
+		t.Error("an unknown node was timed")
+	}
+}

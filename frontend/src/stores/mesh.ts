@@ -18,6 +18,7 @@ import type {
 import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
 import { isAsymmetric, isFunctional, type ViewMode } from '@/map/lanes'
 import { NODE_ISSUES, nodeIssues, type NodeIssue } from '@/map/nodeIssues'
+import { CLOCK_OFFSET_MAX_SEC, clockOff } from '@/map/clock'
 import { historySpan } from '@/utils/history'
 
 const EMPTY = <P,>(): FeatureCollection<P> => ({ type: 'FeatureCollection', features: [] })
@@ -33,6 +34,8 @@ interface ViewPrefs {
   bridge: boolean
   /** Node issues the ⚠ flags; the legend switches each off. */
   issues: NodeIssue[]
+  /** The clock beside nodes whose clock is off. */
+  clock: boolean
 }
 
 /** View preferences are per browser; storage may be unavailable, so it is optional. */
@@ -48,9 +51,18 @@ function loadView(): ViewPrefs {
       issues: Array.isArray(v.issues)
         ? NODE_ISSUES.filter((i) => (v.issues as unknown[]).includes(i))
         : [...NODE_ISSUES],
+      clock: v.clock !== false,
     }
   } catch {
-    return { mode: 'quality', asymOnly: false, palette: 'blue', altitude: false, bridge: false, issues: [...NODE_ISSUES] }
+    return {
+      mode: 'quality',
+      asymOnly: false,
+      palette: 'blue',
+      altitude: false,
+      bridge: false,
+      issues: [...NODE_ISSUES],
+      clock: true,
+    }
   }
 }
 
@@ -102,11 +114,12 @@ export const useMeshStore = defineStore('mesh', () => {
   const altitude = ref(savedView.altitude)
   const bridge = ref(savedView.bridge)
   const issues = ref<NodeIssue[]>(savedView.issues)
-  watch([viewMode, asymOnly, palette, altitude, issues, bridge], ([mode, only, pal, alt, iss, br]) => {
+  const clock = ref(savedView.clock)
+  watch([viewMode, asymOnly, palette, altitude, issues, bridge, clock], ([mode, only, pal, alt, iss, br, clk]) => {
     try {
       localStorage.setItem(
         VIEW_KEY,
-        JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt, issues: iss, bridge: br }),
+        JSON.stringify({ mode, asymOnly: only, palette: pal, altitude: alt, issues: iss, bridge: br, clock: clk }),
       )
     } catch {}
   })
@@ -135,6 +148,7 @@ export const useMeshStore = defineStore('mesh', () => {
   const pushIntervalMs = computed(() => config.value?.pushIntervalMs ?? 2000)
   const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
   const measureRetentionSec = computed(() => config.value?.measureRetentionSec ?? 14 * 86_400)
+  const clockOffsetMaxSec = computed(() => config.value?.clockOffsetMaxSec ?? CLOCK_OFFSET_MAX_SEC)
   /** Links shown by the "Fonctionnel" view: weaker direction at or above the usable threshold. */
   const functionalCount = computed(
     () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
@@ -181,6 +195,10 @@ export const useMeshStore = defineStore('mesh', () => {
     for (const f of nodes.value.features) for (const i of nodeIssues(f.properties)) c[i]++
     return c
   })
+  /** Nodes in view whose clock is off (the clock beside them on the map). */
+  const clockCount = computed(
+    () => nodes.value.features.filter((f) => clockOff(f.properties.clockOffsetSec, clockOffsetMaxSec.value)).length,
+  )
   const asymmetricCount = computed(
     () => links.value.features.filter((f) => isAsymmetric(f.properties, asymmetryThresholdDb.value)).length,
   )
@@ -423,6 +441,9 @@ export const useMeshStore = defineStore('mesh', () => {
     bridgeCounts,
     asymmetryThresholdDb,
     measureRetentionSec,
+    clockOffsetMaxSec,
+    clock,
+    clockCount,
     asymmetricCount,
     functionalCount,
     issueCounts,

@@ -61,6 +61,8 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 		// Gap between direction medians from which the asymmetry view
 		// highlights a link.
 		"asymmetryThresholdDb": s.d.AsymmetryThresholdDb,
+		// Clock offset from which the map flags a node.
+		"clockOffsetMaxSec": int(s.d.ClockOffsetMax / time.Second),
 	})
 }
 
@@ -375,6 +377,9 @@ func nodeProps(n ingest.Node, listenOnly bool) map[string]any {
 	}
 	if listenOnly {
 		p["listenOnly"] = true
+	}
+	if !n.ClockAt.IsZero() {
+		p["clockOffsetSec"] = int64(n.ClockOffset / time.Second)
 	}
 	return p
 }

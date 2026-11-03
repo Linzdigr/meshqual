@@ -111,8 +111,8 @@ func (p *Postgres) UpsertNodes(ctx context.Context, nodes []NodeRow) error {
 	batch := &pgx.Batch{}
 	for _, n := range nodes {
 		batch.Queue(`
-INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope, region_name, first_seen, last_seen)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+INSERT INTO nodes (public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope, region_name, clock_offset_s, clock_at, first_seen, last_seen)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
 ON CONFLICT (public_key) DO UPDATE SET
   name             = CASE WHEN excluded.name <> '' THEN excluded.name ELSE nodes.name END,
   node_type        = CASE WHEN excluded.node_type <> 0 THEN excluded.node_type ELSE nodes.node_type END,
@@ -123,9 +123,11 @@ ON CONFLICT (public_key) DO UPDATE SET
   region_scope     = COALESCE(excluded.region_scope, nodes.region_scope),
   -- A flood advert (scope known) says the region, or that none is known.
   region_name      = CASE WHEN excluded.region_scope IS NOT NULL THEN excluded.region_name ELSE nodes.region_name END,
+  clock_offset_s   = CASE WHEN excluded.clock_at IS NOT NULL THEN excluded.clock_offset_s ELSE nodes.clock_offset_s END,
+  clock_at         = COALESCE(excluded.clock_at, nodes.clock_at),
   last_seen        = now()`,
 			key(n.Key), n.Name, int16(n.NodeType), n.Latitude, n.Longitude, n.AdvertTimestamp,
-			hashSize(n.PathHashSize), hashSize(n.RegionScope), nullable(n.RegionName))
+			hashSize(n.PathHashSize), hashSize(n.RegionScope), nullable(n.RegionName), n.ClockOffsetSec, n.ClockAt)
 	}
 	return p.pool.SendBatch(ctx, batch).Close()
 }
@@ -166,7 +168,7 @@ func hashSize(v uint8) *int16 {
 func (p *Postgres) LoadNodes(ctx context.Context) ([]NodeRow, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT public_key, name, node_type, latitude, longitude, advert_timestamp, path_hash_width, region_scope,
-       COALESCE(region_name, ''), last_relayed, first_seen, last_seen
+       COALESCE(region_name, ''), clock_offset_s, clock_at, last_relayed, first_seen, last_seen
 FROM nodes`)
 	if err != nil {
 		return nil, err
@@ -183,7 +185,7 @@ FROM nodes`)
 			n        NodeRow
 		)
 		if err := rows.Scan(&pk, &n.Name, &nodeType, &n.Latitude, &n.Longitude,
-			&n.AdvertTimestamp, &hashSz, &scope, &n.RegionName, &n.LastRelayed, &n.FirstSeen, &n.LastSeen); err != nil {
+			&n.AdvertTimestamp, &hashSz, &scope, &n.RegionName, &n.ClockOffsetSec, &n.ClockAt, &n.LastRelayed, &n.FirstSeen, &n.LastSeen); err != nil {
 			return nil, err
 		}
 		n.Key, n.NodeType = hexUpper(pk), uint8(nodeType)

@@ -5,6 +5,8 @@ import { snrBucketIndex } from '@/styles/scale'
 import { formatDuration } from '@/utils/duration'
 import ShareButton from './ShareButton.vue'
 import WarnIcon from './WarnIcon.vue'
+import ClockIcon from './ClockIcon.vue'
+import { clockOff, formatOffset } from '@/map/clock'
 import NodeAdmin from './NodeAdmin.vue'
 import { useTraceStore } from '@/stores/trace'
 
@@ -12,6 +14,8 @@ const props = defineProps<{
   nodeKey: string
   detail: NodeDetail | null
   thresholds: number[]
+  /** Clock offset from which the node is flagged, in s. */
+  clockMaxSec: number
 }>()
 
 const emit = defineEmits<{ close: []; openLink: [string] }>()
@@ -66,6 +70,21 @@ async function fix(id: string, command: string) {
     fixReply.value = { ...fixReply.value, [id]: e instanceof Error ? e.message : String(e) }
   }
 }
+/** The node's clock against the server's, from its latest advert. */
+const clock = computed(() => {
+  const n = node.value
+  if (n?.clockOffsetSec == null) return null
+  const ageSec = n.clockAt ? Math.max(0, (Date.now() - Date.parse(n.clockAt)) / 1000) : null
+  return { offset: n.clockOffsetSec, off: clockOff(n.clockOffsetSec, props.clockMaxSec), ageSec }
+})
+/**
+ * Sets the node's clock to the browser's. The firmware only moves it forward
+ * (`time` and `clock sync` refuse to go back), so this fixes a late clock only.
+ */
+function setClock() {
+  void fix('clock', `time ${Math.floor(Date.now() / 1000)}`)
+}
+
 const mapPosition = computed<[number, number] | undefined>(() =>
   node.value?.lat != null && node.value?.lon != null ? [node.value.lon, node.value.lat] : undefined,
 )
@@ -186,6 +205,24 @@ function snr(v: number | null): string {
             <button type="submit" class="btn-fix" :disabled="!regionDraft.trim()">Définir</button>
             <small v-if="fixReply.region">{{ fixReply.region }}</small>
           </form>
+        </div>
+        <div v-if="clock" class="tile">
+          <span class="t-label">Horloge</span>
+          <span class="t-value mono small">
+            <ClockIcon v-if="clock.off" />
+            {{ clock.off ? formatOffset(clock.offset) : 'à l’heure' }}
+          </span>
+          <span class="t-hint">{{
+            clock.off && clock.offset < 0
+              ? 'en retard : ses voisins peuvent ignorer ses annonces'
+              : clock.off
+                ? 'en avance : le firmware ne sait pas reculer l’heure'
+                : `écart ${formatOffset(clock.offset)} à sa dernière annonce`
+          }}<template v-if="clock.ageSec !== null"> · relevé il y a {{ formatDuration(clock.ageSec) }}</template></span>
+          <span v-if="canFix && clock.off && clock.offset < 0" class="fix">
+            <button type="button" class="btn-fix" @click="setClock">Mettre à l’heure</button>
+            <small v-if="fixReply.clock">{{ fixReply.clock }}</small>
+          </span>
         </div>
         <div class="tile">
           <span class="t-label">Clé</span>

@@ -70,6 +70,8 @@ export interface NodeProperties {
   listenOnly?: boolean
   /** How much the mesh depends on it to stay connected (topo analysis). */
   bridge?: 'low' | 'medium' | 'high' | 'critical'
+  /** Its clock minus the server's at its latest advert, in s; absent until one is timed. */
+  clockOffsetSec?: number
 }
 
 export interface CollectionMeta {
@@ -147,6 +149,8 @@ export interface ServerConfig {
   measureRetentionSec?: number
   /** The server takes companion measurements from browsers holding its token. */
   submitEnabled?: boolean
+  /** Clock offset from which a node is flagged on the map, in s. */
+  clockOffsetMaxSec?: number
 }
 
 export interface SourceStats {
@@ -203,6 +207,9 @@ export interface NodeInfo {
   listenOnly?: boolean
   /** Publishes to an MQTT broker: observer firmware, with MQTT settings. */
   observer?: boolean
+  /** Its clock minus the server's at its latest advert, in s, and when that was. */
+  clockOffsetSec?: number
+  clockAt?: string
 }
 
 export interface NodeNeighbor extends NodeInfo {
