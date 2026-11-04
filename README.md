@@ -201,7 +201,7 @@ SNR colour thresholds (`-9 / -5 / 5` dB) are served by `/api/config`.
 ## Where to put a node
 
 The target button under **Calques** proposes sites for new repeaters in the
-current view (80 km wide at most), computed in the browser.
+current view (150 km wide at most), computed in the browser.
 
 - Only reliable links hold the network together: traces and measurements at
   −5 dB or better, and topology links under 25 km. A zone joined to the rest by

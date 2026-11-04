@@ -4,7 +4,7 @@ import type { PlanInput, PlanResult } from './plan'
 import { distanceM, type DemGrid } from './terrain'
 
 /** Beyond this width the view is too large: too many tiles, too many sites. */
-export const MAX_VIEW_KM = 80
+export const MAX_VIEW_KM = 150
 /** At most this many elevation tiles (about 60 KB each). */
 const MAX_TILES = 64
 
