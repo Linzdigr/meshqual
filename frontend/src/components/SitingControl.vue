@@ -67,10 +67,12 @@ const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).
       aria-controls="siting-panel"
       @click="siting.open = !siting.open"
     >
+      <!-- A proposed site as the map draws it: a node in the yellow and black
+           dashed ring. -->
       <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <circle cx="10" cy="10" r="7" />
-        <circle cx="10" cy="10" r="3.5" />
-        <path d="M10 1v3M10 16v3M1 10h3M16 10h3" />
+        <circle class="ring-base" cx="10" cy="10" r="7.6" />
+        <circle class="ring-dash" cx="10" cy="10" r="7.6" />
+        <circle class="node" cx="10" cy="10" r="2.8" />
       </svg>
     </button>
 
@@ -223,6 +225,24 @@ const names = (n: string[]) => (n.length <= 3 ? n.join(', ') : `${n.slice(0, 3).
   stroke: currentColor;
   stroke-width: 1.6;
   stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toggle svg .ring-base {
+  stroke: #1a1a19;
+  stroke-width: 2.6;
+}
+
+.toggle svg .ring-dash {
+  stroke: #fab219;
+  stroke-width: 2.6;
+  stroke-linecap: butt;
+  /* Six dashes around: 2πr ≈ 47.8 */
+  stroke-dasharray: 3.98 3.98;
+}
+
+.toggle svg .node {
+  stroke-width: 1.8;
 }
 
 .panel {

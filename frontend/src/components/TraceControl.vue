@@ -66,12 +66,13 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
       aria-controls="trace-panel"
       @click="trace.open = !trace.open"
     >
-      <!-- A radio on the air: the companion, not the mesh or a share. -->
+      <!-- A trace: through nodes and back, out above, home below. -->
       <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <circle cx="10" cy="8" r="1.6" />
-        <path d="M10 9.6V18M7 15.5h6" />
-        <path d="M6.6 4.6a4.8 4.8 0 0 0 0 6.8M13.4 4.6a4.8 4.8 0 0 1 0 6.8" />
-        <path d="M4.2 2.2a8.2 8.2 0 0 0 0 11.6M15.8 2.2a8.2 8.2 0 0 1 0 11.6" />
+        <circle cx="3.5" cy="10" r="1.9" />
+        <circle cx="10" cy="10" r="1.9" />
+        <circle cx="16.5" cy="10" r="1.9" />
+        <path d="M4.5 6.6Q10 1.8 15.5 6.6M15.5 6.6l-.6-2.5M15.5 6.6l-2.6-.3" />
+        <path d="M15.5 13.4Q10 18.2 4.5 13.4M4.5 13.4l.6 2.5M4.5 13.4l2.6.3" />
       </svg>
     </button>
 
@@ -316,6 +317,7 @@ const endsAway = computed(() => trace.path.length > 1 && trace.path[0] !== trace
   stroke: currentColor;
   stroke-width: 1.5;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .panel {
