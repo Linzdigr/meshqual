@@ -67,7 +67,7 @@ export function stretch(samples: number[], minSpan = 20): AltitudeRange | null {
 }
 
 /** Web Mercator tile coordinates of a point, fractional. */
-function tileXY(lon: number, lat: number, z: number): [number, number] {
+export function tileXY(lon: number, lat: number, z: number): [number, number] {
   const n = 2 ** z
   const rad = (lat * Math.PI) / 180
   return [((lon + 180) / 360) * n, ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n]

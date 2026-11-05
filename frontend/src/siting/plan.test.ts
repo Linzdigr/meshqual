@@ -12,10 +12,25 @@ function tileXY(lon: number, lat: number): [number, number] {
 
 /** Flat ground at `elev` metres over the box, with tiles from zoom Z. */
 function flatDem(b: PlanInput['bbox'], elev: number): DemGrid {
+  return dem(b, () => elev)
+}
+
+/** Ground at height(lon, lat) over the box and a margin, with tiles from zoom Z. */
+function dem(b: PlanInput['bbox'], height: (lon: number, lat: number) => number): DemGrid {
   const [x0, y0] = tileXY(b.minLng - 0.5, b.maxLat + 0.5).map(Math.floor) as [number, number]
   const [x1, y1] = tileXY(b.maxLng + 0.5, b.minLat - 0.5).map(Math.floor) as [number, number]
+  const n = 2 ** Z
   const tiles = []
-  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) tiles.push({ x, y, data: new Float32Array(256 * 256).fill(elev) })
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      const data = new Float32Array(256 * 256)
+      for (let py = 0; py < 256; py++) {
+        const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + (py + 0.5) / 256)) / n))) * 180) / Math.PI
+        for (let px = 0; px < 256; px++) data[py * 256 + px] = height(((x + (px + 0.5) / 256) / n) * 360 - 180, lat)
+      }
+      tiles.push({ x, y, data })
+    }
+  }
   return { z: Z, tiles }
 }
 
@@ -119,6 +134,25 @@ describe('planSites', () => {
     expect(r.proposals[0]!.links.length).toBeLessThanOrEqual(6)
     expect(r.proposals.length).toBeGreaterThanOrEqual(1)
     expect(r.proposals.length).toBeLessThanOrEqual(2)
+  })
+
+  it('proposes the same sites when the view moves a little', () => {
+    // Rolling ground, so that the high points are not ties.
+    const wide = { minLng: -2.6, minLat: 47.9, maxLng: -1.6, maxLat: 48.3 }
+    const hills = (lon: number, lat: number) => 60 + 40 * Math.sin(lon * 23) * Math.cos(lat * 31) + 25 * Math.sin(lon * 57 + lat * 41)
+    const net = [node('A', -2.5, 48.1), node('B', -2.48, 48.12), node('C', -2.46, 48.1)]
+    const far = [node('X', -1.75, 48.1), node('Y', -1.73, 48.12)]
+    const run = (dLng: number, dLat: number) => {
+      const b = { minLng: wide.minLng + dLng, minLat: wide.minLat + dLat, maxLng: wide.maxLng + dLng, maxLat: wide.maxLat + dLat }
+      const i = input([...net, ...far], [...MAIN_EDGES, ['X', 'Y']], b)
+      i.dem = dem(wide, hills)
+      return planSites(i).proposals.map((p) => [p.lon, p.lat])
+    }
+    const base = run(0, 0)
+    expect(base.length).toBeGreaterThan(0)
+    // About a pixel at zoom 9, then a few.
+    expect(run(0.003, 0.002)).toEqual(base)
+    expect(run(-0.02, 0.01)).toEqual(base)
   })
 
   it('ignores nodes with no link at all', () => {

@@ -1,5 +1,5 @@
 import type { BBox } from '@/api/types'
-import { coveringTiles, loadTile } from '@/map/elevation'
+import { coveringTiles, loadTile, tileXY } from '@/map/elevation'
 import type { PlanInput, PlanResult } from './plan'
 import { distanceM, type DemGrid } from './terrain'
 
@@ -22,10 +22,25 @@ export async function loadDem(b: BBox): Promise<DemGrid & { missing: number; tot
   const mx = (b.maxLng - b.minLng) * 0.15
   const my = (b.maxLat - b.minLat) * 0.15
   const wide = { minLng: b.minLng - mx, minLat: b.minLat - my, maxLng: b.maxLng + mx, maxLat: b.maxLat + my }
-  const { z, tiles } = coveringTiles(wide, 13, MAX_TILES)
+  const { z, tiles } = coveringTiles(wide, demZoom(wide) + 1, Infinity)
   const data = await Promise.all(tiles.map((t) => loadTile(t.z, t.x, t.y)))
   const loaded = tiles.flatMap((t, i) => (data[i] ? [{ x: t.x, y: t.y, data: data[i]! }] : []))
   return { z, tiles: loaded, missing: tiles.length - loaded.length, total: tiles.length }
+}
+
+/**
+ * The most detailed zoom (12 at most) at which a box of this size fits in
+ * MAX_TILES wherever it lies. From the size only: counting the tiles of the
+ * box itself, a pan of one pixel over a tile boundary would change the zoom,
+ * the relief and so the proposals.
+ */
+export function demZoom(b: BBox): number {
+  for (let z = 12; z > 3; z--) {
+    const [x0, y0] = tileXY(b.minLng, b.maxLat, z)
+    const [x1, y1] = tileXY(b.maxLng, b.minLat, z)
+    if ((Math.floor(x1 - x0) + 2) * (Math.floor(y1 - y0) + 2) <= MAX_TILES) return z
+  }
+  return 3
 }
 
 /** Runs the planner in a worker; cancel() stops it. */

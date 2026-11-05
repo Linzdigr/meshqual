@@ -129,49 +129,65 @@ interface Candidate extends Point {
 
 const snrOf = (lossDb: number) => SNR_REF_DB - lossDb
 
-/** The high points of the view: the top of each cell, kept where no neighbouring cell is higher. */
+/** Cell sizes of the candidate lattice, in km: the finest that keeps the view within MAX_CELLS across. */
+const CELL_KM = [1.5, 3, 6]
+const MAX_CELLS = 60
+/** Elevation sampled about every this many metres within a cell. */
+const SAMPLE_M = 250
+/**
+ * Longitude span of a cell over its latitude span: square cells around 48° N.
+ * Fixed rather than taken from the view, so that the cells do not move with it.
+ */
+const CELL_ASPECT = 1.5
+
+/**
+ * The high points of the view: the top of each cell, kept where no
+ * neighbouring cell is higher. The cells are a fixed lattice of the globe, not
+ * of the view: panning keeps the same candidates, and so the same proposals,
+ * except at the edges. The cell size follows the view's width only.
+ */
 function candidateSites(dem: Dem, b: PlanInput['bbox']): Candidate[] {
   const mid = (b.minLat + b.maxLat) / 2
   const widthKm = distanceM({ lon: b.minLng, lat: mid }, { lon: b.maxLng, lat: mid }) / 1000
-  const heightKm = distanceM({ lon: b.minLng, lat: b.minLat }, { lon: b.minLng, lat: b.maxLat }) / 1000
-  const nx = Math.max(6, Math.min(40, Math.round(widthKm / 1.5)))
-  const ny = Math.max(6, Math.min(40, Math.round(heightKm / 1.5)))
-  const dx = (b.maxLng - b.minLng) / nx
-  const dy = (b.maxLat - b.minLat) / ny
-  const SUB = 6
-  const tops: (Candidate | null)[][] = []
-  for (let j = 0; j < ny; j++) {
-    const row: (Candidate | null)[] = []
-    for (let i = 0; i < nx; i++) {
-      let best: Candidate | null = null
-      for (let sj = 0; sj < SUB; sj++) {
-        for (let si = 0; si < SUB; si++) {
-          const lon = b.minLng + dx * (i + (si + 0.5) / SUB)
-          const lat = b.minLat + dy * (j + (sj + 0.5) / SUB)
-          const e = dem.at(lon, lat)
-          if (e !== null && e > 0 && (!best || e > best.elevM)) best = { id: '', lon, lat, elevM: e, links: [] }
-        }
+  const cellKm = CELL_KM.find((c) => widthKm / c <= MAX_CELLS) ?? CELL_KM[CELL_KM.length - 1]!
+  const dy = cellKm / 111.32
+  const dx = dy * CELL_ASPECT
+  const sub = Math.max(4, Math.round((cellKm * 1000) / SAMPLE_M))
+  // One more cell all round, for the peak test of the cells at the edges.
+  const i0 = Math.floor(b.minLng / dx) - 1
+  const i1 = Math.floor(b.maxLng / dx) + 1
+  const j0 = Math.floor(b.minLat / dy) - 1
+  const j1 = Math.floor(b.maxLat / dy) + 1
+  const top = (i: number, j: number): Candidate | null => {
+    let best: Candidate | null = null
+    for (let sj = 0; sj < sub; sj++) {
+      for (let si = 0; si < sub; si++) {
+        const lon = dx * (i + (si + 0.5) / sub)
+        const lat = dy * (j + (sj + 0.5) / sub)
+        const e = dem.at(lon, lat)
+        if (e !== null && e > 0 && (!best || e > best.elevM)) best = { id: `site-${i}:${j}`, lon, lat, elevM: e, links: [] }
       }
-      row.push(best)
     }
-    tops.push(row)
+    return best
   }
+  const tops = new Map<string, Candidate | null>()
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) tops.set(`${i}:${j}`, top(i, j))
   const out: Candidate[] = []
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const c = tops[j]![i]
-      if (!c) continue
+  for (let j = j0 + 1; j < j1; j++) {
+    for (let i = i0 + 1; i < i1; i++) {
+      const c = tops.get(`${i}:${j}`)
+      if (!c || c.lon < b.minLng || c.lon > b.maxLng || c.lat < b.minLat || c.lat > b.maxLat) continue
       let peak = true
       for (let oj = -1; oj <= 1 && peak; oj++) {
         for (let oi = -1; oi <= 1; oi++) {
-          const o = tops[j + oj]?.[i + oi]
+          const o = tops.get(`${i + oi}:${j + oj}`)
           if (o && o !== c && o.elevM > c.elevM) {
             peak = false
             break
           }
         }
       }
-      if (peak) out.push({ ...c, id: `site-${out.length}` })
+      if (peak) out.push(c)
     }
   }
   return out
