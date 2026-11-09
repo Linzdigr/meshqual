@@ -143,8 +143,8 @@ measured both ways whose weaker direction is at least -5 dB.
 A link leaves the map once it has not been heard for `liveWindow` (default
 24 h), unless it still holds a signal measurement: SNR and RSSI values are kept
 for `measureRetention` (default 14 days), because signal between two repeaters
-only comes from occasional traces. The map fades such links as the measurement
-ages, and the link panel says how old it is.
+only comes from occasional traces. Links are drawn at a fixed opacity whatever
+the age of their measurement; the link panel says how old it is.
 
 Nodes not heard for `nodeMaxAge` (default 48 h) leave the map. A node is heard
 when it adverts, relays in a path that names it unambiguously, or observes.

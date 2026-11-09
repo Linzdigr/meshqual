@@ -395,7 +395,6 @@ watch(
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
         :palette="store.palette"
-        :measure-retention-sec="store.measureRetentionSec"
         :issues="store.issues"
         :clock-max-sec="store.clock ? store.clockOffsetMaxSec : null"
         :altitude="store.altitude"

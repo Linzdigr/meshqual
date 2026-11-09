@@ -140,7 +140,7 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           </li>
         </ul>
         <p class="caveat">
-          Une mesure reste affichée {{ retentionDays }} jours ; le lien pâlit selon son ancienneté.
+          Une mesure reste affichée {{ retentionDays }} jours après le dernier passage entendu.
         </p>
       </div>
 

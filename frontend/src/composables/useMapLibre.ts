@@ -894,40 +894,18 @@ function siteRingImage(m: maplibregl.Map): maplibregl.StyleImageInterface {
 }
 
 /**
- * A measurement stays on the map for the retention period (14 days by default)
- * after the link was last heard, fading as it ages: full strength for the
- * first day, then down to MEASURE_FADE_MIN at the end of retention. Links with
- * no measurement are not affected.
+ * Unfocused opacity of the links, whatever the age of their measurement: the
+ * link panel gives that age. Topology links stay lighter, the animated packet
+ * line at full strength.
  */
-const MEASURE_FRESH_SEC = 86_400
-const MEASURE_FADE_MIN = 0.35
-
-function measureFade(base: number, retentionSec: number): ExpressionSpecification {
-  const end = Math.max(retentionSec, MEASURE_FRESH_SEC + 1)
-  return [
-    '*',
-    base,
-    [
-      'interpolate',
-      ['linear'],
-      ['coalesce', ['get', 'measureAgeSec'], 0],
-      MEASURE_FRESH_SEC,
-      1,
-      end,
-      MEASURE_FADE_MIN,
-    ],
-  ]
-}
-
-/** Unfocused opacity per link layer. Every lane at full strength: the "Liens
- * déséquilibrés seulement" filter is what singles out unbalanced links. */
+const LINK_OPACITY_BASE = 0.7
 const LINK_OPACITY: { layer: string; prop: 'line-opacity' | 'icon-opacity'; base: number }[] = [
-  { layer: LAYER_CASING, prop: 'line-opacity', base: 0.85 },
+  { layer: LAYER_CASING, prop: 'line-opacity', base: LINK_OPACITY_BASE },
   { layer: LAYER_TOPOLOGY, prop: 'line-opacity', base: 0.45 },
-  { layer: LAYER_MEASURED, prop: 'line-opacity', base: 0.95 },
-  { layer: LAYER_LANES_MISSING, prop: 'line-opacity', base: 0.9 },
-  { layer: LAYER_LANES, prop: 'line-opacity', base: 1 },
-  { layer: LAYER_LANE_ARROWS, prop: 'icon-opacity', base: 1 },
+  { layer: LAYER_MEASURED, prop: 'line-opacity', base: LINK_OPACITY_BASE },
+  { layer: LAYER_LANES_MISSING, prop: 'line-opacity', base: LINK_OPACITY_BASE },
+  { layer: LAYER_LANES, prop: 'line-opacity', base: LINK_OPACITY_BASE },
+  { layer: LAYER_LANE_ARROWS, prop: 'icon-opacity', base: LINK_OPACITY_BASE },
   { layer: LAYER_ACTIVE, prop: 'line-opacity', base: 1 },
 ]
 
@@ -951,8 +929,6 @@ export interface UseMapOptions {
   issues: Ref<NodeIssue[]>
   /** Clock offset (s) from which a node gets the clock; null hides the clocks. */
   clockMaxSec: Ref<number | null>
-  /** How long a link keeps its signal values; links fade over it. */
-  measureRetentionSec: Ref<number>
   /** Nodes sized and filled by their bridge role (map/bridge), links dimmed. */
   bridge: Ref<boolean>
   /** Altitude as a colour ramp under the links. */
@@ -1456,10 +1432,8 @@ export function useMapLibre(opts: UseMapOptions) {
     const nodes = traceFocus?.nodes ?? focusNodes
     const inLinks: ExpressionSpecification = ['in', ['get', 'linkId'], ['literal', links]]
     for (const { layer, prop, base } of LINK_OPACITY) {
-      // The animated packet line is fresh by definition: no age fade.
       const dim = opts.bridge.value ? BRIDGE_LINK_DIM : 1
-      const rest = layer === LAYER_ACTIVE ? base * dim : measureFade(base * dim, opts.measureRetentionSec.value)
-      map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : rest)
+      map.setPaintProperty(layer, prop, on ? ['case', inLinks, 1, FOCUS_DIM] : base * dim)
     }
     const inNodes: ExpressionSpecification = ['in', ['get', 'key'], ['literal', nodes]]
     const nodeOpacity = on ? ['case', inNodes, 1, NODE_FOCUS_DIM] : 1

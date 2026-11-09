@@ -19,7 +19,6 @@ const props = defineProps<{
   asymOnly: boolean
   asymThreshold: number
   palette: SnrPalette
-  measureRetentionSec: number
   issues: NodeIssue[]
   /** Clock offset (s) from which a node gets the clock; null hides the clocks. */
   clockMaxSec: number | null
@@ -50,7 +49,6 @@ const asymThresholdRef = ref(props.asymThreshold)
 const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
 const bridgeRef = ref(props.bridge)
-const retentionRef = ref(props.measureRetentionSec)
 const issuesRef = ref(props.issues)
 const clockMaxRef = ref(props.clockMaxSec)
 
@@ -71,7 +69,6 @@ const map = useMapLibre({
   palette: paletteRef,
   altitude: altitudeRef,
   bridge: bridgeRef,
-  measureRetentionSec: retentionRef,
   issues: issuesRef,
   clockMaxSec: clockMaxRef,
   onAltitudeRange: (r) => emit('altitudeRange', r),
@@ -137,13 +134,6 @@ watch(
   (v) => {
     clockMaxRef.value = v
     map.applyView()
-  },
-)
-watch(
-  () => props.measureRetentionSec,
-  (sec) => {
-    retentionRef.value = sec
-    map.applyFocus()
   },
 )
 watch(
