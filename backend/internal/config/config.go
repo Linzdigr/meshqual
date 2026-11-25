@@ -59,6 +59,12 @@ type Config struct {
 	// AsymmetryThresholdDb is the gap between direction medians from which the
 	// map's asymmetry view highlights a link.
 	AsymmetryThresholdDb float64 `json:"asymmetryThresholdDb"`
+	// BusyMinHours and BusyMinSamples: a link heard in at least BusyMinHours
+	// of the last 24 clock hours, with at least BusyMinSamples samples in
+	// them, counts as working in the map's "Fonctionnel" view even without
+	// any SNR. Recurring traffic proves the hop carries packets.
+	BusyMinHours   int `json:"busyMinHours"`
+	BusyMinSamples int `json:"busyMinSamples"`
 
 	// Line of sight (link panel). LosAltimetryURL is the IGN Géoplateforme
 	// elevationLine service (France only); empty disables the feature.
@@ -136,6 +142,8 @@ func Default() Config {
 		LosAntennaM:          10,
 		MinDirectionSamples:  3,
 		AsymmetryThresholdDb: 6,
+		BusyMinHours:         12,
+		BusyMinSamples:       24,
 		PushInterval:         Duration(2 * time.Second),
 		FlushInterval:        Duration(2 * time.Second),
 		FlushSize:            500,

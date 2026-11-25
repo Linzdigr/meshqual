@@ -333,3 +333,22 @@ func TestHashRoundTrip(t *testing.T) {
 		t.Error("5-byte hash accepted")
 	}
 }
+
+// PacketHash leaves the path out, so relayed copies match, and adds path_len
+// for a TRACE only, as the uint16_t it is in Packet (Packet::calculatePacketHash).
+func TestPacketHash(t *testing.T) {
+	payload := mustHex(t, "0102030405")
+	a := &Packet{Header: header(RouteFlood, PayloadTxtMsg, 0), Payload: payload}
+	b := &Packet{Header: header(RouteFlood, PayloadTxtMsg, 0), PathLenByte: pathLen(2, 1), Path: []byte{0x11, 0x22}, Payload: payload}
+	ha, hb := a.PacketHash(), b.PacketHash()
+	if got := hex.EncodeToString(ha[:]); got != "23adb40bcda9a241" {
+		t.Fatalf("hash = %s", got)
+	}
+	if ha != hb {
+		t.Fatal("relayed copy hashes differently")
+	}
+	tr := &Packet{Header: header(RouteDirect, PayloadTrace, 0), PathLenByte: 0x02, Payload: mustHex(t, "aabbccdd")}
+	if h := tr.PacketHash(); hex.EncodeToString(h[:]) != "871547b139ba9bb1" {
+		t.Fatalf("trace hash = %x", h)
+	}
+}

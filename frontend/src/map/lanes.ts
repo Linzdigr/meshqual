@@ -20,17 +20,40 @@ export function laneId(linkId: string, forward: boolean): string {
 }
 
 /**
- * Usable both ways: each direction has at least one measurement and the weaker
- * one (snrQuality, the lower of the two medians) reaches the usable bucket (the
- * second SNR threshold, -5 dB by default). A link measured one way only says
- * nothing about the way back, so it does not qualify. Mirrored as a MapLibre
- * filter by functionalFilter in useMapLibre.ts.
+ * Measured usable both ways: each direction has at least one measurement and
+ * the weaker one (snrQuality, the lower of the two medians) reaches the usable
+ * bucket (the second SNR threshold, -5 dB by default). A link measured one way
+ * only says nothing about the way back, so it does not qualify. Mirrored as a
+ * MapLibre filter by snrWorksFilter in useMapLibre.ts.
  */
-export function isFunctional(p: LinkProperties, thresholds: readonly number[]): boolean {
+export function snrWorks(p: LinkProperties, thresholds: readonly number[]): boolean {
   return (
     (p.snrBasis === 'both' || p.snrBasis === 'few') &&
     (p.snrQuality ?? -Infinity) >= (thresholds[1] ?? -5)
   )
+}
+
+/** The traffic from which a link counts as working, SNR or not (server busyMin*). */
+export interface BusyRule {
+  /** Clock hours with traffic, out of the last 24. */
+  minHours: number
+  /** Samples in those hours. */
+  minSamples: number
+}
+export const DEFAULT_BUSY: BusyRule = { minHours: 12, minSamples: 24 }
+
+/**
+ * Busy: heard most hours of the last day, often enough. Recurring traffic
+ * proves the hop carries packets, measured or not: a topology link on a
+ * route the mesh uses every hour works. Mirrored by busyFilter in useMapLibre.ts.
+ */
+export function isBusy(p: LinkProperties, busy: BusyRule): boolean {
+  return (p.activeHours ?? 0) >= busy.minHours && (p.samples24h ?? 0) >= busy.minSamples
+}
+
+/** The "Fonctionnel" view: usable SNR both ways, or busy. */
+export function isFunctional(p: LinkProperties, thresholds: readonly number[], busy: BusyRule = DEFAULT_BUSY): boolean {
+  return snrWorks(p, thresholds) || isBusy(p, busy)
 }
 
 /** Both directions are measured and their medians differ by at least `thresholdDb`. */

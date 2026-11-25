@@ -16,6 +16,20 @@ func (a Sink) WriteSamples(ctx context.Context, samples []ingest.Sample) error {
 	return a.S.WriteSamples(ctx, samples)
 }
 
+// WriteReceptions archives raw receptions.
+func (a Sink) WriteReceptions(ctx context.Context, recs []ingest.Reception) error {
+	rows := make([]ObservationRow, len(recs))
+	for i, r := range recs {
+		rows[i] = ObservationRow{
+			At: r.At, SourceID: r.SourceID, ObserverKey: r.ObserverKey, Region: r.Region,
+			RouteType: r.RouteType, PayloadType: r.PayloadType, HopCount: r.HopCount, HashSize: r.HashSize,
+			Path: r.Path, SNR: r.SNR, RSSI: r.RSSI, WireHash: r.WireHash, PacketHash: r.PacketHash,
+			OriginKey: r.OriginKey, FrameLen: r.FrameLen,
+		}
+	}
+	return a.S.WriteObservations(ctx, rows)
+}
+
 // MarkRelayed persists when nodes were last seen relaying.
 func (a Sink) MarkRelayed(ctx context.Context, at map[string]time.Time) error {
 	return a.S.MarkRelayed(ctx, at)

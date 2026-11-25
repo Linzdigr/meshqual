@@ -5,7 +5,7 @@ import { useMapLibre, type Padding } from '@/composables/useMapLibre'
 import type { AltitudeRange } from '@/map/elevation'
 import { loadView, saveView } from '@/map/savedView'
 import type { NodeIssue } from '@/map/nodeIssues'
-import type { ViewMode } from '@/map/lanes'
+import type { BusyRule, ViewMode } from '@/map/lanes'
 import type { SnrPalette } from '@/styles/scale'
 
 const props = defineProps<{
@@ -18,6 +18,7 @@ const props = defineProps<{
   mode: ViewMode
   asymOnly: boolean
   asymThreshold: number
+  busy: BusyRule
   palette: SnrPalette
   issues: NodeIssue[]
   /** Clock offset (s) from which a node gets the clock; null hides the clocks. */
@@ -37,6 +38,7 @@ const emit = defineEmits<{
   select: [string | null]
   selectNode: [string | null]
   selectSite: [string]
+  hoverLinks: [string[]]
   altitudeRange: [AltitudeRange | null]
 }>()
 
@@ -46,6 +48,7 @@ const darkRef = ref(props.dark)
 const modeRef = ref(props.mode)
 const asymOnlyRef = ref(props.asymOnly)
 const asymThresholdRef = ref(props.asymThreshold)
+const busyRef = ref(props.busy)
 const paletteRef = ref(props.palette)
 const altitudeRef = ref(props.altitude)
 const bridgeRef = ref(props.bridge)
@@ -66,6 +69,7 @@ const map = useMapLibre({
   mode: modeRef,
   asymOnly: asymOnlyRef,
   asymThreshold: asymThresholdRef,
+  busy: busyRef,
   palette: paletteRef,
   altitude: altitudeRef,
   bridge: bridgeRef,
@@ -76,6 +80,7 @@ const map = useMapLibre({
   onSelectLink: (id) => emit('select', id),
   onSelectNode: (key) => emit('selectNode', key),
   onSelectSite: (id) => emit('selectSite', id),
+  onHoverLinks: (ids) => emit('hoverLinks', ids),
 })
 
 onMounted(() => map.mount())
@@ -164,6 +169,10 @@ defineExpose({
   setTraceLabels: (hops: { from: string; to: string; snr?: number }[]) => map.setTraceLabels(hops),
   /** Plays trace legs with the live-packet animation. */
   animateHops: (hops: { from: string; to: string; snr?: number }[]) => map.animateHops(hops),
+  /** Haloes one link: the node panel's hovered row, or the link under the pointer. null clears it. */
+  hoverLink: (linkId: string | null) => map.hoverLink(linkId),
+  /** Draws the way a packet went (map/packetPath); an empty collection clears it. */
+  setPacketPath: (fc: { type: 'FeatureCollection'; features: unknown[] }) => map.setPacketPath(fc),
   /** Draws the proposed sites (siting/plan sitesGeoJSON). */
   setSites: (fc: { type: 'FeatureCollection'; features: unknown[] }) => map.setSites(fc),
 })
@@ -179,6 +188,14 @@ watch(
   ([mode, only]) => {
     modeRef.value = mode
     asymOnlyRef.value = only
+    map.applyView()
+  },
+)
+
+watch(
+  () => props.busy,
+  (b) => {
+    busyRef.value = b
     map.applyView()
   },
 )

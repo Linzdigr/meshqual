@@ -20,6 +20,7 @@
 package meshcore
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -188,6 +189,27 @@ func (p *Packet) HopCount() int { return int(p.PathLenByte & 63) }
 // bytes rather than hop hashes (Mesh.cpp: "append SNR (Not hash!)").
 func (p *Packet) IsTrace() bool {
 	return p.RouteType() == RouteDirect && p.PayloadType() == PayloadTrace
+}
+
+// PacketHashSize mirrors MAX_HASH_SIZE: the bytes of a packet hash.
+const PacketHashSize = 8
+
+// PacketHash mirrors Packet::calculatePacketHash(): SHA-256 over the payload
+// type, path_len for a TRACE (a uint16_t in Packet, so 2 bytes little-endian),
+// and the payload, cut to 8 bytes. The
+// path is left out, so every copy of a packet, whichever relays it went
+// through, has the same hash: the one repeaters drop duplicates by.
+func (p *Packet) PacketHash() [PacketHashSize]byte {
+	h := sha256.New()
+	t := p.PayloadType()
+	h.Write([]byte{t})
+	if t == PayloadTrace {
+		h.Write([]byte{p.PathLenByte, 0})
+	}
+	h.Write(p.Payload)
+	var out [PacketHashSize]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 // Hops splits Path into hop hashes. It returns nil for TRACE packets, whose Path

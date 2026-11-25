@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMeshStore } from '@/stores/mesh'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
-import { api } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import type { BBox, LinkKind } from '@/api/types'
 import MeshMap from '@/components/MeshMap.vue'
 import SnrLegend from '@/components/SnrLegend.vue'
@@ -17,7 +17,9 @@ import NodeSearch from '@/components/NodeSearch.vue'
 import SitingControl from '@/components/SitingControl.vue'
 import { useSitingStore } from '@/stores/siting'
 import { sitesGeoJSON, type Proposal } from '@/siting/plan'
-import type { NodeSearchHit } from '@/api/types'
+import type { NodeSearchHit, PacketTrace } from '@/api/types'
+import PacketCard from '@/components/PacketCard.vue'
+import { packetPath } from '@/map/packetPath'
 import { useTraceStore } from '@/stores/trace'
 import type { AltitudeRange } from '@/map/elevation'
 
@@ -157,6 +159,12 @@ function focusPadding() {
     // The panel is about to open (a shared link): keep its future place clear.
     if (m.width <= 760) pad.bottom = m.height * 0.52 + gap
     else pad.right = Math.min(460, m.width * 0.4) + gap
+  }
+  // The packet card: across the top, or docked at the bottom on a phone.
+  const c = document.getElementById('packet-card')?.getBoundingClientRect()
+  if (c && c.height > 0) {
+    if (c.top - m.top < m.height / 2) pad.top = Math.max(pad.top, c.bottom - m.top + gap)
+    else pad.bottom = Math.max(pad.bottom, m.bottom - c.top + gap)
   }
   return pad
 }
@@ -304,10 +312,67 @@ watch(
   ([hops, open]) => meshMap.value?.setTraceLabels(open ? hops : []),
 )
 
-// The traces have the map to themselves: nodes and links they do not use
-// fade like around a selected link (stores/trace focusPaths).
+// The node panel's link hovered in its table or on the map: haloed on the
+// map, highlighted in the table. Only the selected node's own links.
+const hoveredLinkId = ref<string | null>(null)
+function onMapHoverLinks(ids: string[]) {
+  const mine = new Set(store.nodeDetail?.neighbors.map((n) => n.linkId) ?? [])
+  hoveredLinkId.value = store.selectedNodeKey ? (ids.find((id) => mine.has(id)) ?? null) : null
+}
 watch(
-  () => trace.focusPaths,
+  () => store.selectedNodeKey,
+  () => (hoveredLinkId.value = null),
+)
+watch(hoveredLinkId, (id) => meshMap.value?.hoverLink(id))
+
+// A packet's way, found by its hash in the search field (map/packetPath).
+const packetHash = ref<string | null>(null)
+const packetTrace = ref<PacketTrace | null>(null)
+const packetLoading = ref(false)
+const packetError = ref<string | null>(null)
+const packetDrawn = computed(() => (packetTrace.value ? packetPath(packetTrace.value) : null))
+let packetAc: AbortController | null = null
+
+async function onPacket(hash: string) {
+  packetAc?.abort()
+  packetAc = new AbortController()
+  store.selectLink(null)
+  store.selectNode(null)
+  packetHash.value = hash
+  packetTrace.value = null
+  packetError.value = null
+  packetLoading.value = true
+  try {
+    packetTrace.value = await api.packet(hash, packetAc.signal)
+    // Framed once the card shows its summary, so the padding is real.
+    await nextTick()
+    const points = packetDrawn.value?.points ?? []
+    if (points.length) meshMap.value?.focusPoints(points, focusPadding())
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return
+    packetError.value =
+      e instanceof ApiError && e.status === 404
+        ? 'Aucune réception de ce paquet ces 7 derniers jours.'
+        : 'Recherche impossible pour le moment.'
+  } finally {
+    packetLoading.value = false
+  }
+}
+
+function closePacket() {
+  packetAc?.abort()
+  packetHash.value = null
+  packetTrace.value = null
+  packetError.value = null
+  packetLoading.value = false
+}
+
+watch(packetDrawn, (p) => meshMap.value?.setPacketPath(p?.geojson ?? { type: 'FeatureCollection', features: [] }))
+
+// The traces, or a packet's way, have the map to themselves: nodes and links
+// they do not use fade like around a selected link (stores/trace focusPaths).
+watch(
+  () => packetDrawn.value?.routes ?? trace.focusPaths,
   (routes) => meshMap.value?.setTraceFocus(routes),
 )
 
@@ -379,7 +444,7 @@ watch(
       :theme-mode="mode"
       @cycle-theme="cycle"
     >
-      <NodeSearch @select="onSearchHit" />
+      <NodeSearch @select="onSearchHit" @packet="onPacket" />
     </StatusBar>
 
     <main ref="mainEl">
@@ -394,6 +459,7 @@ watch(
         :mode="store.viewMode"
         :asym-only="store.asymOnly"
         :asym-threshold="store.asymmetryThresholdDb"
+        :busy="store.busyRule"
         :palette="store.palette"
         :issues="store.issues"
         :clock-max-sec="store.clock ? store.clockOffsetMaxSec : null"
@@ -406,6 +472,7 @@ watch(
         @select="(id) => !trace.selecting && store.selectLink(id)"
         @select-node="onSelectNode"
         @select-site="(id) => (siting.selected = id)"
+        @hover-links="onMapHoverLinks"
         @altitude-range="(r) => (altitudeRange = r)"
       />
 
@@ -424,6 +491,16 @@ watch(
         <SitingControl @focus="focusSite" />
       </div>
 
+      <PacketCard
+        v-if="packetHash"
+        :hash="packetHash"
+        :trace="packetTrace"
+        :path="packetDrawn"
+        :loading="packetLoading"
+        :error="packetError"
+        @close="closePacket"
+      />
+
       <CompanionButton :compact="!!(store.selectedLinkId || store.selectedNodeKey)" />
 
       <div ref="legendEl" class="overlay left">
@@ -437,6 +514,9 @@ watch(
           :asym-threshold="store.asymmetryThresholdDb"
           :palette="store.palette"
           :functional-count="store.functionalCount"
+          :busy-count="store.busyCount"
+          :busy-min-hours="store.busyRule.minHours"
+          :busy-min-samples="store.busyRule.minSamples"
           :retention-days="Math.round(store.measureRetentionSec / 86400)"
           :issue-counts="store.issueCounts"
           :listen-only-count="store.listenOnlyCount"
@@ -462,8 +542,10 @@ watch(
           :detail="store.nodeDetail"
           :thresholds="store.snrThresholds"
           :clock-max-sec="store.clockOffsetMaxSec"
+          :hovered-link-id="hoveredLinkId"
           @close="store.selectNode(null)"
           @open-link="(id) => store.selectLink(id)"
+          @hover-link="(id) => (hoveredLinkId = id)"
         />
       </div>
 

@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { NodeSearchHit } from '@/api/types'
 
-const emit = defineEmits<{ select: [NodeSearchHit] }>()
+const emit = defineEmits<{ select: [NodeSearchHit]; packet: [string] }>()
 
 const typeLabel: Record<string, string> = {
   repeater: 'Répéteur',
@@ -31,6 +31,10 @@ let ac: AbortController | null = null
 watch(query, (q) => {
   window.clearTimeout(timer)
   ac?.abort()
+  if (packetHash.value) {
+    open.value = true
+    active.value = 0
+  }
   const t = q.trim()
   if (t.length < MIN_CHARS) {
     hits.value = []
@@ -55,26 +59,48 @@ watch(query, (q) => {
   }, DEBOUNCE_MS)
 })
 
-const empty = computed(() => open.value && !searching.value && answered.value !== '' && hits.value.length === 0)
+/** A packet hash in full (16 hex digits, spaces or colons allowed): offered before the nodes. */
+const packetHash = computed(() => {
+  const h = query.value.replace(/[\s:]/g, '')
+  return /^[0-9a-f]{16}$/i.test(h) ? h.toUpperCase() : null
+})
+/** Rows of the list: the packet first when the query is one, then the nodes. */
+const rows = computed(() => (packetHash.value ? 1 : 0) + hits.value.length)
 
-function choose(h: NodeSearchHit | undefined) {
-  if (!h) return
-  emit('select', h)
+const empty = computed(
+  () => open.value && !searching.value && !packetHash.value && answered.value !== '' && hits.value.length === 0,
+)
+
+function done() {
   open.value = false
   query.value = ''
   input.value?.blur()
 }
 
+function choose(i: number) {
+  if (packetHash.value) {
+    if (i === 0) {
+      emit('packet', packetHash.value)
+      return done()
+    }
+    i--
+  }
+  const h = hits.value[i]
+  if (!h) return
+  emit('select', h)
+  done()
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    if (!hits.value.length) return
+    if (!rows.value) return
     e.preventDefault()
     open.value = true
-    const n = hits.value.length
+    const n = rows.value
     active.value = (active.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    choose(hits.value[active.value])
+    choose(active.value)
   } else if (e.key === 'Escape') {
     if (query.value) query.value = ''
     else input.value?.blur()
@@ -105,29 +131,41 @@ onUnmounted(() => {
       ref="input"
       v-model="query"
       type="search"
-      placeholder="Rechercher un nœud"
-      aria-label="Rechercher un nœud par nom ou clé"
-      title="Nom ou début de clé publique (raccourci : /)"
+      placeholder="Rechercher un nœud ou un paquet"
+      aria-label="Rechercher un nœud par nom ou clé, ou un paquet par son hash"
+      title="Nom, début de clé publique, ou hash de paquet en entier (16 caractères hexadécimaux). Raccourci : /"
       autocomplete="off"
       spellcheck="false"
       role="combobox"
       aria-controls="node-search-list"
-      :aria-expanded="open && hits.length > 0"
-      :aria-activedescendant="open && hits.length ? `node-hit-${active}` : undefined"
+      :aria-expanded="open && rows > 0"
+      :aria-activedescendant="open && rows ? `node-hit-${active}` : undefined"
       @keydown="onKeydown"
-      @focus="open = hits.length > 0"
+      @focus="open = rows > 0"
       @blur="open = false"
     />
-    <ul v-if="open && hits.length" id="node-search-list" class="list" role="listbox">
+    <ul v-if="open && rows" id="node-search-list" class="list" role="listbox">
       <li
-        v-for="(h, i) in hits"
-        :id="`node-hit-${i}`"
+        v-if="packetHash"
+        id="node-hit-0"
+        role="option"
+        :aria-selected="active === 0"
+        :class="{ active: active === 0 }"
+        @mousedown.prevent="choose(0)"
+        @mousemove="active = 0"
+      >
+        <span class="name">Chemin du paquet</span>
+        <span class="meta mono">{{ packetHash }}</span>
+      </li>
+      <li
+        v-for="(h, j) in hits"
+        :id="`node-hit-${j + (packetHash ? 1 : 0)}`"
         :key="h.key"
         role="option"
-        :aria-selected="i === active"
-        :class="{ active: i === active }"
-        @mousedown.prevent="choose(h)"
-        @mousemove="active = i"
+        :aria-selected="j + (packetHash ? 1 : 0) === active"
+        :class="{ active: j + (packetHash ? 1 : 0) === active }"
+        @mousedown.prevent="choose(j + (packetHash ? 1 : 0))"
+        @mousemove="active = j + (packetHash ? 1 : 0)"
       >
         <span class="name">{{ h.name || h.key.slice(0, 8) }}</span>
         <span class="meta">

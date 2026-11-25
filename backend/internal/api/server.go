@@ -44,6 +44,10 @@ type Deps struct {
 	RelayWindow time.Duration
 	// ClockOffsetMax is served by /api/config for the map's clock flag.
 	ClockOffsetMax time.Duration
+	// BusyMinHours and BusyMinSamples are served by /api/config: the traffic
+	// from which the "Fonctionnel" view keeps a link without SNR.
+	BusyMinHours   int
+	BusyMinSamples int
 	// SubmitToken enables POST /api/measurements for browsers that hold it.
 	SubmitToken string
 	// Elevation profiles for the line-of-sight check; nil disables it.
@@ -85,6 +89,7 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/frames", s.frames)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/history", s.history)
 	s.mux.HandleFunc("GET /api/links/{a}/{b}/profile", s.profile)
+	s.mux.HandleFunc("GET /api/packets/{hash}", s.packet)
 	s.mux.HandleFunc("GET /api/stream", s.stream)
 	s.mux.HandleFunc("POST /api/measurements", s.measurements)
 	return s

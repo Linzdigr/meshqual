@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,44 @@ type Sink interface {
 	UpsertNodes(ctx context.Context, nodes []NodeUpsert) error
 	// MarkRelayed records the latest time each node was seen relaying.
 	MarkRelayed(ctx context.Context, at map[string]time.Time) error
+	// WriteReceptions archives every reception, for /api/packets/{hash}.
+	WriteReceptions(ctx context.Context, rows []Reception) error
+}
+
+// Reception is one observer's copy of a packet, archived as received.
+type Reception struct {
+	At          time.Time
+	SourceID    string
+	ObserverKey string
+	Region      string
+	RouteType   uint8
+	PayloadType uint8
+	HopCount    int
+	HashSize    int
+	// Path is the raw path: hop hashes, or per-hop SNR for a TRACE.
+	Path       []byte
+	SNR        *float64
+	RSSI       *int
+	WireHash   string
+	PacketHash string
+	// OriginKey is the sender when the packet names it in full (an advert).
+	OriginKey string
+	FrameLen  int
+}
+
+// receptionOf archives a decoded observation.
+func receptionOf(obs source.Observation, d *Decoded) Reception {
+	r := Reception{
+		At: obs.ReceivedAt, SourceID: obs.SourceID, ObserverKey: strings.ToUpper(obs.ObserverKey),
+		Region: obs.Region, RouteType: d.Packet.RouteType(), PayloadType: d.Packet.PayloadType(),
+		HopCount: d.Packet.HopCount(), HashSize: d.Packet.HashSize(), Path: d.Packet.Path,
+		SNR: obs.SNR, RSSI: obs.RSSI, WireHash: d.WireHash, PacketHash: d.PacketHash,
+		FrameLen: len(obs.Raw),
+	}
+	if d.Advert != nil {
+		r.OriginKey = d.Advert.PublicKeyHex()
+	}
+	return r
 }
 
 // relaysOf is which ends of a sample were path hops, so relayed the packet
@@ -96,6 +135,7 @@ type Pipeline struct {
 
 	mu        sync.Mutex
 	sampleBuf []Sample
+	recBuf    []Reception
 	nodeBuf   map[string]NodeUpsert
 
 	traces *TraceDedup
@@ -233,6 +273,7 @@ func (p *Pipeline) handle(obs source.Observation) {
 
 	p.mu.Lock()
 	p.sampleBuf = append(p.sampleBuf, d.Samples...)
+	p.recBuf = append(p.recBuf, receptionOf(obs, d))
 	if d.Advert != nil {
 		ts := int64(d.Advert.Timestamp)
 		k := d.Advert.PublicKeyHex()
@@ -251,7 +292,7 @@ func (p *Pipeline) handle(obs source.Observation) {
 		}
 		p.nodeBuf[k] = up
 	}
-	full := len(p.sampleBuf) >= p.opt.FlushSize
+	full := len(p.sampleBuf) >= p.opt.FlushSize || len(p.recBuf) >= p.opt.FlushSize
 	p.mu.Unlock()
 
 	// Per-frame events go only to clients watching this exact link, so an idle
@@ -281,6 +322,8 @@ func (p *Pipeline) flush(ctx context.Context) {
 	p.mu.Lock()
 	samples := p.sampleBuf
 	p.sampleBuf = nil
+	recs := p.recBuf
+	p.recBuf = nil
 	nodes := make([]NodeUpsert, 0, len(p.nodeBuf))
 	for _, n := range p.nodeBuf {
 		nodes = append(nodes, n)
@@ -288,7 +331,7 @@ func (p *Pipeline) flush(ctx context.Context) {
 	p.nodeBuf = make(map[string]NodeUpsert)
 	p.mu.Unlock()
 
-	if len(samples) == 0 && len(nodes) == 0 {
+	if len(samples) == 0 && len(nodes) == 0 && len(recs) == 0 {
 		return
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -313,6 +356,12 @@ func (p *Pipeline) flush(ctx context.Context) {
 		if err := p.sink.MarkRelayed(writeCtx, relayed); err != nil {
 			p.writeErr.Add(1)
 			p.log.Warn("relay mark failed", "count", len(relayed), "err", err)
+		}
+	}
+	if len(recs) > 0 {
+		if err := p.sink.WriteReceptions(writeCtx, recs); err != nil {
+			p.writeErr.Add(1)
+			p.log.Warn("reception write failed", "count", len(recs), "err", err)
 		}
 	}
 	if len(samples) > 0 {

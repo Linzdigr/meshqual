@@ -89,6 +89,44 @@ type LinkState struct {
 	measuredPos    int
 
 	Observers map[string]int
+
+	// activity counts samples per clock hour over the last ActivityHours,
+	// slot hour % ActivityHours: how regularly the link carries traffic.
+	activity [ActivityHours]hourCount
+}
+
+// ActivityHours is the span of LinkState's hourly activity.
+const ActivityHours = 24
+
+type hourCount struct {
+	hour int64 // Unix hours
+	n    int
+}
+
+// noteActivity counts n samples in the hour of at. A sample older than the
+// hour its slot holds is past the span and dropped.
+func (st *LinkState) noteActivity(at time.Time, n int) {
+	h := at.Unix() / 3600
+	s := &st.activity[h%ActivityHours]
+	switch {
+	case h > s.hour:
+		s.hour, s.n = h, n
+	case h == s.hour:
+		s.n += n
+	}
+}
+
+// recentActivity is how many of the last ActivityHours clock hours (the
+// current one included) carried traffic on the link, and how many samples.
+func (st *LinkState) recentActivity(now time.Time) (hours, samples int) {
+	cur := now.Unix() / 3600
+	for _, s := range st.activity {
+		if s.n > 0 && s.hour > cur-ActivityHours && s.hour <= cur {
+			hours++
+			samples += s.n
+		}
+	}
+	return hours, samples
 }
 
 // Aggregator holds the live link table and the retained frames.
@@ -157,6 +195,7 @@ func (a *Aggregator) Add(d *Decoded) {
 			a.links[id] = st
 		}
 		st.Samples++
+		st.noteActivity(s.At, 1)
 		if s.Forward {
 			st.Forward++
 		} else {
@@ -255,6 +294,33 @@ func (a *Aggregator) RestoreCounts(counts []LinkCount) {
 		if c.First.Before(st.FirstSeen) {
 			st.FirstSeen = c.First
 		}
+	}
+}
+
+// HourCount is a link's sample count in one clock hour, from the store.
+type HourCount struct {
+	ID   LinkID
+	Hour time.Time
+	N    int
+}
+
+// RestoreActivity replaces the hourly activity of the links already in the
+// table with stored counts, after a warm-up that read only the newest samples
+// of each. Counts for links not in the table are ignored.
+func (a *Aggregator) RestoreActivity(counts []HourCount) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	reset := map[LinkID]bool{}
+	for _, c := range counts {
+		st := a.links[c.ID]
+		if st == nil {
+			continue
+		}
+		if !reset[c.ID] {
+			reset[c.ID] = true
+			st.activity = [ActivityHours]hourCount{}
+		}
+		st.noteActivity(c.Hour, c.N)
 	}
 }
 
@@ -475,6 +541,10 @@ type LinkView struct {
 	RSSIMeanAB *float64       `json:"rssiMeanAB"`
 	RSSIMeanBA *float64       `json:"rssiMeanBA"`
 	Observers  map[string]int `json:"observers"`
+	// ActiveHours: how many of the last ActivityHours clock hours carried
+	// traffic on the link; Samples24h: how many samples in them.
+	ActiveHours int `json:"activeHours"`
+	Samples24h  int `json:"samples24h"`
 }
 
 func (st *LinkState) view(minDir int) LinkView {
@@ -496,6 +566,7 @@ func (st *LinkState) view(minDir int) LinkView {
 	v.SNRAB, v.SNRBA = stats(st.snrAB), stats(st.snrBA)
 	v.Quality, v.SNRBasis, v.Delta = quality(v.SNR, v.SNRAB, v.SNRBA, minDir)
 	v.RSSIMean, v.RSSIMeanAB, v.RSSIMeanBA = meanOf(st.rssi), meanOf(st.rssiAB), meanOf(st.rssiBA)
+	v.ActiveHours, v.Samples24h = st.recentActivity(time.Now())
 	return v
 }
 

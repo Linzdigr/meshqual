@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Feature, FeatureCollection, LinkProperties } from '@/api/types'
-import { buildLanes, isAsymmetric, isFunctional, laneId } from './lanes'
+import { buildLanes, isAsymmetric, isBusy, isFunctional, laneId } from './lanes'
 
 function link(p: Partial<LinkProperties>): Feature<LinkProperties> {
   return {
@@ -67,6 +67,18 @@ describe('isFunctional', () => {
   it('rejects a strong link measured one way only, and links with no SNR', () => {
     expect(isFunctional(link({ snrBasis: 'oneWay', snrQuality: 12 }).properties, T)).toBe(false)
     expect(isFunctional(link({ kind: 'topology' }).properties, T)).toBe(false)
+  })
+
+  it('keeps a link heard most hours of the day, SNR or not', () => {
+    const busy = { minHours: 12, minSamples: 24 }
+    const topo = (activeHours: number, samples24h: number) => link({ kind: 'topology', activeHours, samples24h }).properties
+    expect(isFunctional(topo(12, 24), T, busy)).toBe(true)
+    // A burst: many samples, few hours.
+    expect(isBusy(topo(3, 500), busy)).toBe(false)
+    // Regular but thin.
+    expect(isBusy(topo(20, 20), busy)).toBe(false)
+    // A weak measured link the mesh uses every hour works all the same.
+    expect(isFunctional(link({ snrBasis: 'both', snrQuality: -11, activeHours: 24, samples24h: 300 }).properties, T, busy)).toBe(true)
   })
 })
 

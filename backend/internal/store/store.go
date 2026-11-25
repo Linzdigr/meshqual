@@ -46,6 +46,8 @@ type ObservationRow struct {
 	SNR         *float64
 	RSSI        *int
 	WireHash    string
+	PacketHash  string
+	OriginKey   string
 	FrameLen    int
 }
 
@@ -70,9 +72,14 @@ type Store interface {
 	MarkRelayed(ctx context.Context, at map[string]time.Time) error
 	LoadNodes(ctx context.Context) ([]NodeRow, error)
 	WriteObservations(ctx context.Context, rows []ObservationRow) error
+	// PacketReceptions returns the receptions of one packet (its firmware
+	// hash) since `since`, oldest first, at most limit.
+	PacketReceptions(ctx context.Context, packetHash string, since time.Time, limit int) ([]ObservationRow, error)
 	WriteSamples(ctx context.Context, samples []ingest.Sample) error
 	LoadRecentSamples(ctx context.Context, since, measuredSince time.Time, framesPerLink, signalPerDirection int) ([]ingest.Sample, error)
 	LoadLinkCounts(ctx context.Context, since, measuredSince time.Time) ([]ingest.LinkCount, error)
+	// LoadLinkHours counts each link's samples per clock hour since `since`.
+	LoadLinkHours(ctx context.Context, since time.Time) ([]ingest.HourCount, error)
 	LinkHistory(ctx context.Context, a, b string, since time.Time, bucket time.Duration) ([]Bucket, error)
 	Ping(ctx context.Context) error
 	Close()
@@ -87,13 +94,19 @@ func (Noop) UpsertNodes(context.Context, []NodeRow) error              { return 
 func (Noop) MarkRelayed(context.Context, map[string]time.Time) error   { return nil }
 func (Noop) LoadNodes(context.Context) ([]NodeRow, error)              { return nil, nil }
 func (Noop) WriteObservations(context.Context, []ObservationRow) error { return nil }
-func (Noop) WriteSamples(context.Context, []ingest.Sample) error       { return nil }
-func (Noop) Ping(context.Context) error                                { return nil }
-func (Noop) Close()                                                    {}
+func (Noop) PacketReceptions(context.Context, string, time.Time, int) ([]ObservationRow, error) {
+	return nil, nil
+}
+func (Noop) WriteSamples(context.Context, []ingest.Sample) error { return nil }
+func (Noop) Ping(context.Context) error                          { return nil }
+func (Noop) Close()                                              {}
 func (Noop) LoadRecentSamples(context.Context, time.Time, time.Time, int, int) ([]ingest.Sample, error) {
 	return []ingest.Sample{}, nil
 }
 func (Noop) LoadLinkCounts(context.Context, time.Time, time.Time) ([]ingest.LinkCount, error) {
+	return nil, nil
+}
+func (Noop) LoadLinkHours(context.Context, time.Time) ([]ingest.HourCount, error) {
 	return nil, nil
 }
 func (Noop) LinkHistory(context.Context, string, string, time.Time, time.Duration) ([]Bucket, error) {

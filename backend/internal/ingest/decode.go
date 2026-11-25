@@ -35,6 +35,9 @@ type Decoded struct {
 	// apart to be one radio hop (see Resolver.Plausible).
 	LinksImplausible int
 	WireHash         string
+	// PacketHash is the firmware's packet hash (meshcore.Packet.PacketHash),
+	// uppercase hex: the same on every copy of the packet.
+	PacketHash string
 }
 
 // Decode attributes one observation to zero or more link samples.
@@ -51,7 +54,12 @@ func Decode(obs source.Observation, r *Resolver) (*Decoded, error) {
 		return nil, err
 	}
 	sum := sha256.Sum256(obs.Raw)
-	d := &Decoded{Packet: pkt, WireHash: strings.ToUpper(hex.EncodeToString(sum[:8]))}
+	ph := pkt.PacketHash()
+	d := &Decoded{
+		Packet:     pkt,
+		WireHash:   strings.ToUpper(hex.EncodeToString(sum[:8])),
+		PacketHash: strings.ToUpper(hex.EncodeToString(ph[:])),
+	}
 
 	observer := strings.ToUpper(obs.ObserverKey)
 	// An observer publishing is itself alive.

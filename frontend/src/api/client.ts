@@ -11,6 +11,7 @@ import type {
   NodeDetail,
   NodeProperties,
   NodeSearchHit,
+  PacketTrace,
   ServerConfig,
 } from './types'
 
@@ -115,6 +116,9 @@ export const api = {
   /** Nodes on the map whose name or key matches q, wherever they are. */
   searchNodes: (q: string, signal?: AbortSignal) =>
     get<{ nodes: NodeSearchHit[] }>(`/api/nodes/search?q=${encodeURIComponent(q)}`, signal),
+
+  packet: (hash: string, signal?: AbortSignal) =>
+    get<PacketTrace>(`/api/packets/${encodeURIComponent(hash)}`, signal),
 
   node: (key: string, signal?: AbortSignal) =>
     get<NodeDetail>(`/api/nodes/${encodeURIComponent(key)}`, signal),

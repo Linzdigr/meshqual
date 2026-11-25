@@ -16,7 +16,7 @@ import {
   snrStepExpression,
   type SnrPalette,
 } from '@/styles/scale'
-import { buildLanes, isAsymmetric, isFunctional, laneId, type ViewMode } from '@/map/lanes'
+import { buildLanes, isAsymmetric, isFunctional, laneId, type BusyRule, type ViewMode } from '@/map/lanes'
 import {
   reliefColorExpression,
   TERRARIUM_ATTRIBUTION,
@@ -42,6 +42,8 @@ const PROFILE_MARK_SOURCE = 'profile-mark'
 const SITING_SOURCE = 'siting'
 const TRACE_PATH_SOURCE = 'trace-path'
 const TRACE_LABELS_SOURCE = 'trace-labels'
+/** The way a packet went, found by its hash (map/packetPath). */
+const PACKET_SOURCE = 'packet-path'
 
 const LAYER_CASING = 'links-casing'
 const LAYER_TOPOLOGY = 'links-topology'
@@ -51,6 +53,8 @@ const LAYER_LANES_MISSING = 'lanes-missing'
 const LAYER_LANE_ARROWS = 'lanes-arrows'
 const LAYER_ACTIVE = 'links-active-line'
 const LAYER_SELECTED = 'links-selected'
+/** A halo under the link hovered in the node panel's table, or on the map. */
+const LAYER_HOVER = 'links-hover'
 const LAYER_NODES = 'nodes-circles'
 /** Listen-only observers: a diamond instead of a circle (api listenOnly). */
 const LAYER_LISTEN = 'nodes-listen'
@@ -66,6 +70,9 @@ const LAYER_SITE_LINKS = 'siting-links'
 const LAYER_SITE_RING = 'siting-ring'
 const LAYER_SITE_NUMBERS = 'siting-numbers'
 const SITE_RING = 'site-ring'
+const LAYER_PACKET_LINE = 'packet-path-line'
+const LAYER_PACKET_NODES = 'packet-path-nodes'
+const LAYER_PACKET_LABELS = 'packet-path-labels'
 const LAYER_TRACE_LINE = 'trace-path-line'
 const LAYER_TRACE_STOPS = 'trace-path-stops'
 const LAYER_TRACE_NUMBERS = 'trace-path-numbers'
@@ -85,6 +92,9 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] } as const
 const LAYER_ALTITUDE = 'altitude'
 const ALTITUDE_SOURCE = 'terrain-dem'
 /** Strong enough to read the ramp, light enough for the basemap to show through. */
+/** A packet's way: cyan, apart from the SNR ramp and the blue trace path. */
+const packetColor = (dark: boolean) => (dark ? '#3bc9db' : '#0c8599')
+
 const altitudeOpacity = (dark: boolean) => (dark ? 0.5 : 0.55)
 
 /** How long a link animates after its newest packet. */
@@ -418,6 +428,7 @@ function baseStyle(dark: boolean): StyleSpecification {
       [SITING_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [TRACE_PATH_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [TRACE_LABELS_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
+      [PACKET_SOURCE]: { type: 'geojson', data: EMPTY_FC as never },
       [ALTITUDE_SOURCE]: {
         type: 'raster-dem',
         tiles: [TERRARIUM_URL],
@@ -473,15 +484,29 @@ function activeColor(dark: boolean, thresholds: readonly number[], palette: SnrP
 }
 
 /**
- * The "Fonctionnel" view: both directions measured, the weaker at the usable
- * threshold or above. Same rule as isFunctional in map/lanes.ts.
+ * Both directions measured, the weaker at the usable threshold or above. Same
+ * rule as snrWorks in map/lanes.ts.
  */
-function functionalFilter(thresholds: readonly number[]): ExpressionSpecification {
+function snrWorksFilter(thresholds: readonly number[]): ExpressionSpecification {
   return [
     'all',
     ['in', ['get', 'snrBasis'], ['literal', ['both', 'few']]],
     ['>=', ['coalesce', ['get', 'snrQuality'], -1000], thresholds[1] ?? -5],
   ]
+}
+
+/** Heard most hours of the last day: isBusy in map/lanes.ts. */
+function busyFilter(busy: BusyRule): ExpressionSpecification {
+  return [
+    'all',
+    ['>=', ['coalesce', ['get', 'activeHours'], 0], busy.minHours],
+    ['>=', ['coalesce', ['get', 'samples24h'], 0], busy.minSamples],
+  ]
+}
+
+/** The "Fonctionnel" view: usable SNR both ways, or busy (isFunctional). */
+function functionalFilter(thresholds: readonly number[], busy: BusyRule): ExpressionSpecification {
+  return ['any', snrWorksFilter(thresholds), busyFilter(busy)]
 }
 
 function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPalette) {
@@ -514,6 +539,19 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'line-color': dark ? '#ffffff' : '#0b0b0b',
         'line-width': widthExpr(2.5),
         'line-opacity': 0.9,
+      },
+    },
+    {
+      id: LAYER_HOVER,
+      type: 'line' as const,
+      source: LINKS_SOURCE,
+      filter: ['==', ['get', 'linkId'], '__none__'] as ExpressionSpecification,
+      layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
+      paint: {
+        'line-color': dark ? '#ffffff' : '#0b0b0b',
+        'line-width': widthExpr(10),
+        'line-opacity': 0.6,
+        'line-blur': 1.5,
       },
     },
     // Topology links: the pair demonstrably hear each other, but no signal
@@ -848,6 +886,51 @@ function dataLayers(dark: boolean, thresholds: readonly number[], palette: SnrPa
         'text-halo-width': 2,
       },
     },
+    // The way a packet went: solid between nodes seen in a row, dashed across
+    // hops no known node answers to; the originator, relays and observers.
+    {
+      id: LAYER_PACKET_LINE,
+      type: 'line' as const,
+      source: PACKET_SOURCE,
+      filter: ['==', ['geometry-type'], 'LineString'] as ExpressionSpecification,
+      layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
+      paint: {
+        'line-color': packetColor(dark),
+        'line-width': ['case', ['get', 'gap'], 2.5, 4.5] as ExpressionSpecification,
+        'line-dasharray': ['case', ['get', 'gap'], ['literal', [1, 2]], ['literal', [1, 0]]] as ExpressionSpecification,
+        'line-opacity': 0.95,
+      },
+    },
+    {
+      id: LAYER_PACKET_NODES,
+      type: 'circle' as const,
+      source: PACKET_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      paint: {
+        'circle-radius': ['match', ['get', 'role'], 'origin', 9, 'observer', 7, 5] as ExpressionSpecification,
+        'circle-color': ['match', ['get', 'role'], 'observer', surface, packetColor(dark)] as ExpressionSpecification,
+        'circle-stroke-color': ['match', ['get', 'role'], 'observer', packetColor(dark), surface] as ExpressionSpecification,
+        'circle-stroke-width': ['match', ['get', 'role'], 'observer', 3, 2] as ExpressionSpecification,
+      },
+    },
+    {
+      id: LAYER_PACKET_LABELS,
+      type: 'symbol' as const,
+      source: PACKET_SOURCE,
+      filter: ['==', ['geometry-type'], 'Point'] as ExpressionSpecification,
+      layout: {
+        'text-field': ['get', 'name'] as ExpressionSpecification,
+        'text-size': 11.5,
+        'text-anchor': 'top' as const,
+        'text-offset': [0, 0.9],
+        'text-max-width': 12,
+      },
+      paint: {
+        'text-color': dark ? '#ffffff' : '#0b0b0b',
+        'text-halo-color': surface,
+        'text-halo-width': 2,
+      },
+    },
   ]
 }
 
@@ -924,6 +1007,8 @@ export interface UseMapOptions {
   /** Asymmetry view only: hide every link that is not asymmetric. */
   asymOnly: Ref<boolean>
   asymThreshold: Ref<number>
+  /** Traffic from which the "Fonctionnel" view keeps a link without SNR. */
+  busy: Ref<BusyRule>
   palette: Ref<SnrPalette>
   /** Node configuration issues the ⚠ flags. */
   issues: Ref<NodeIssue[]>
@@ -944,6 +1029,8 @@ export interface UseMapOptions {
   onSelectNode: (key: string | null) => void
   /** A proposed site clicked on the map. */
   onSelectSite?: (id: string) => void
+  /** The links under the pointer, nearest first; [] when it leaves them. */
+  onHoverLinks?: (ids: string[]) => void
 }
 
 export function useMapLibre(opts: UseMapOptions) {
@@ -952,6 +1039,7 @@ export function useMapLibre(opts: UseMapOptions) {
   let pendingLinks: FeatureCollection<LinkProperties> | null = null
   let pendingNodes: FeatureCollection<NodeProperties> | null = null
   let pendingSites: { type: 'FeatureCollection'; features: unknown[] } | null = null
+  let pendingPacket: { type: 'FeatureCollection'; features: unknown[] } | null = null
 
   /** Animated links; `local` ones come from a trace sent here, not from the server. */
   const active = new Map<
@@ -1020,6 +1108,7 @@ export function useMapLibre(opts: UseMapOptions) {
       if (pendingLinks) setLinks(pendingLinks)
       if (pendingNodes) setNodes(pendingNodes)
       if (pendingSites) setSites(pendingSites)
+      if (pendingPacket) setPacketPath(pendingPacket)
       opts.onMoveEnd(bboxOf(map))
     })
 
@@ -1096,10 +1185,21 @@ export function useMapLibre(opts: UseMapOptions) {
       opts.onSelectNode(null)
     })
 
+    let hovered = ''
+    const emitHover = (ids: string[]) => {
+      const k = ids.join(',')
+      if (k === hovered) return
+      hovered = k
+      opts.onHoverLinks?.(ids)
+    }
     map.on('mousemove', (e) => {
       if (!map) return
-      map.getCanvas().style.cursor = siteAt(e.point) || nodeAt(e.point) || hitAt(e.point).length > 0 ? 'pointer' : ''
+      const onNode = !!(siteAt(e.point) || nodeAt(e.point))
+      const links = onNode ? [] : hitAt(e.point)
+      map.getCanvas().style.cursor = onNode || links.length > 0 ? 'pointer' : ''
+      emitHover([...new Set(links.map((f) => f.properties?.['linkId']).filter((id): id is string => typeof id === 'string'))])
     })
+    map.on('mouseout', () => emitHover([]))
   }
 
   function addDataLayers() {
@@ -1183,7 +1283,7 @@ export function useMapLibre(opts: UseMapOptions) {
             laneId: laneId(p.linkId, p.lastForward),
             lanes: p.kind !== 'topology',
             emphasized: isAsymmetric(p, opts.asymThreshold.value),
-            functional: isFunctional(p, opts.thresholds.value),
+            functional: isFunctional(p, opts.thresholds.value, opts.busy.value),
             weight: p.weight,
             ...(snr !== undefined && { snrActive: snr }),
           },
@@ -1230,13 +1330,15 @@ export function useMapLibre(opts: UseMapOptions) {
     show(LAYER_LANES_MISSING, asym)
     show(LAYER_LANE_ARROWS, asym)
     show(LAYER_FOCUS_LABELS, asym)
-    // Topology links have no SNR, so they can never be shown as working.
-    show(LAYER_TOPOLOGY, !only && !functional)
+    // Topology links have no SNR: the "Fonctionnel" view keeps the busy ones
+    // (applyFilters), still dashed, in its own colour.
+    show(LAYER_TOPOLOGY, !only)
     const dark = opts.dark.value
     const thresholds = opts.thresholds.value
     const palette = opts.palette.value
     const mono = dark ? FUNCTIONAL_DARK : FUNCTIONAL_LIGHT
     m.setPaintProperty(LAYER_MEASURED, 'line-color', functional ? mono : measuredColor(dark, thresholds, palette))
+    m.setPaintProperty(LAYER_TOPOLOGY, 'line-color', functional ? mono : dark ? NO_DATA_DARK : NO_DATA_LIGHT)
     m.setPaintProperty(LAYER_ACTIVE, 'line-color', functional ? mono : activeColor(dark, thresholds, palette))
     m.setPaintProperty(
       LAYER_CASING,
@@ -1269,7 +1371,7 @@ export function useMapLibre(opts: UseMapOptions) {
     if (!map || !ready) return
     const only = opts.mode.value === 'asymmetry' && opts.asymOnly.value
     const functional = opts.mode.value === 'functional'
-    const works = functionalFilter(opts.thresholds.value)
+    const works = functionalFilter(opts.thresholds.value, opts.busy.value)
     const notIn = (prop: string, ids: string[]): ExpressionSpecification => [
       '!',
       ['in', ['get', prop], ['literal', ids]],
@@ -1277,7 +1379,12 @@ export function useMapLibre(opts: UseMapOptions) {
     const activeLinks = [...active.keys()]
     const activeLanes = [...active.values()].map((a) => a.feature.properties.laneId)
     const emph: ExpressionSpecification[] = only ? [EMPHASIZED] : []
-    map.setFilter(LAYER_TOPOLOGY, ['all', TOPOLOGY_FILTER, notIn('linkId', activeLinks)])
+    map.setFilter(LAYER_TOPOLOGY, [
+      'all',
+      TOPOLOGY_FILTER,
+      notIn('linkId', activeLinks),
+      ...(functional ? [works] : []),
+    ])
     map.setFilter(LAYER_MEASURED, [
       'all',
       MEASURED_FILTER,
@@ -1342,6 +1449,15 @@ export function useMapLibre(opts: UseMapOptions) {
     if (!map || !map.getLayer(LAYER_SELECTED)) return
     applyFilters()
     applyFocus()
+  }
+
+  let hoverId: string | null = null
+
+  /** Haloes one link (the node panel's hovered row, or the link under the pointer); null clears it. */
+  function hoverLink(linkId: string | null) {
+    hoverId = linkId
+    if (!map || !map.getLayer(LAYER_HOVER)) return
+    map.setFilter(LAYER_HOVER, ['==', ['get', 'linkId'], linkId ?? '__none__'])
   }
 
   function highlightNode(key: string | null) {
@@ -1488,6 +1604,10 @@ export function useMapLibre(opts: UseMapOptions) {
   function retheme() {
     if (!map || !ready) return
     for (const id of [
+      LAYER_HOVER,
+      LAYER_PACKET_LABELS,
+      LAYER_PACKET_NODES,
+      LAYER_PACKET_LINE,
       LAYER_SITE_NUMBERS,
       LAYER_SITE_RING,
       LAYER_SITE_LINKS,
@@ -1522,6 +1642,7 @@ export function useMapLibre(opts: UseMapOptions) {
     addDataLayers()
     applyView()
     applyBridge() // also re-applies the focus
+    hoverLink(hoverId)
     updateFocusLabels()
     setTraceLabels(traceHops) // colours follow the theme
     syncActive()
@@ -1612,7 +1733,7 @@ export function useMapLibre(opts: UseMapOptions) {
             laneId: laneId(linkId, forward),
             lanes: !!p && p.kind !== 'topology',
             emphasized: !!p && isAsymmetric(p, opts.asymThreshold.value),
-            functional: !!p && isFunctional(p, opts.thresholds.value),
+            functional: !!p && isFunctional(p, opts.thresholds.value, opts.busy.value),
             weight: p?.weight ?? 1,
             trace: true,
             ...(snr !== undefined && { snrActive: snr }),
@@ -1699,6 +1820,13 @@ export function useMapLibre(opts: UseMapOptions) {
     src.setData({ type: 'FeatureCollection', features } as never)
   }
 
+  /** The way a packet went (map/packetPath); an empty collection clears it. */
+  function setPacketPath(fc: { type: 'FeatureCollection'; features: unknown[] }) {
+    const src = map?.getSource(PACKET_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(fc as never)
+    else pendingPacket = fc
+  }
+
   /** Proposed sites and their predicted links (siting/plan sitesGeoJSON). */
   function setSites(fc: { type: 'FeatureCollection'; features: unknown[] }) {
     const src = map?.getSource(SITING_SOURCE) as maplibregl.GeoJSONSource | undefined
@@ -1743,6 +1871,7 @@ export function useMapLibre(opts: UseMapOptions) {
     setNodes,
     highlight,
     highlightNode,
+    hoverLink,
     retheme,
     fitTo,
     applyView,
@@ -1751,6 +1880,7 @@ export function useMapLibre(opts: UseMapOptions) {
     applyFocus,
     markOnLink,
     animateHops,
+    setPacketPath,
     setTracePath,
     setTraceLabels,
     setTraceFocus,

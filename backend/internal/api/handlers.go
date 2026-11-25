@@ -63,6 +63,10 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 		"asymmetryThresholdDb": s.d.AsymmetryThresholdDb,
 		// Clock offset from which the map flags a node.
 		"clockOffsetMaxSec": int(s.d.ClockOffsetMax / time.Second),
+		// The "Fonctionnel" view also keeps a link, SNR or not, heard in at
+		// least this many of the last 24 clock hours with this many samples.
+		"busyMinHours":   s.d.BusyMinHours,
+		"busyMinSamples": s.d.BusyMinSamples,
 	})
 }
 
@@ -181,6 +185,10 @@ func (s *Server) links(w http.ResponseWriter, r *http.Request) {
 			// orders of magnitude more than a leaf, and a linear width would
 			// make everything but the busiest pair invisible.
 			"weight": round2(math.Log10(float64(l.Samples) + 1)),
+			// How regularly the link carries traffic: the "Fonctionnel" view
+			// keeps a link heard most hours of the day, measured or not.
+			"activeHours": l.ActiveHours,
+			"samples24h":  l.Samples24h,
 			// The ends' node types: the map hides companions (and their
 			// links) unless asked, even when the companion is out of view.
 			"aType": meshcore.AdvTypeName(na.NodeType),
@@ -346,6 +354,7 @@ var mapLinkProps = map[string]bool{
 	"measureAgeSec": true, "snrQuality": true, "snrBasis": true, "snrMedian": true,
 	"snrMedianAB": true, "snrMedianBA": true, "snrCountAB": true, "snrCountBA": true,
 	"snrDelta": true, "rssiMeanAB": true, "rssiMeanBA": true,
+	"activeHours": true, "samples24h": true,
 }
 
 func toInt(v any) int {

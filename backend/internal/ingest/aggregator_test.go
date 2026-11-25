@@ -300,3 +300,39 @@ func TestRestoreCountsReplacesWarmUpCounters(t *testing.T) {
 		t.Error("a count created a link")
 	}
 }
+
+// Hourly activity: distinct clock hours with traffic over the last 24, and
+// their samples; older hours fall out, a late sample cannot wipe a newer hour.
+func TestLinkActivity(t *testing.T) {
+	st := &LinkState{}
+	now := time.Date(2026, 11, 25, 15, 30, 0, 0, time.UTC)
+	for h := 0; h < 30; h++ { // 30 hours back: the 6 oldest are past the span
+		st.noteActivity(now.Add(-time.Duration(h)*time.Hour), 2)
+	}
+	if hours, n := st.recentActivity(now); hours != 24 || n != 48 {
+		t.Fatalf("got %d hours, %d samples", hours, n)
+	}
+	st.noteActivity(now.Add(-25*time.Hour), 5) // same slot as now-1h, older
+	if hours, n := st.recentActivity(now); hours != 24 || n != 48 {
+		t.Fatalf("late sample changed it: %d hours, %d samples", hours, n)
+	}
+	if hours, _ := st.recentActivity(now.Add(10 * time.Hour)); hours != 14 {
+		t.Fatalf("10 h later: %d hours", hours)
+	}
+}
+
+func TestRestoreActivity(t *testing.T) {
+	a := NewAggregator(5, 16, time.Hour)
+	now := time.Now().UTC()
+	a.Add(&Decoded{Samples: []Sample{{AKey: "A", BKey: "B", At: now, Kind: KindTopology}}})
+	id := LinkID{A: "A", B: "B"}
+	a.RestoreActivity([]HourCount{
+		{ID: id, Hour: now.Truncate(time.Hour), N: 7},
+		{ID: id, Hour: now.Add(-3 * time.Hour).Truncate(time.Hour), N: 4},
+		{ID: LinkID{A: "X", B: "Y"}, Hour: now, N: 9},
+	})
+	v, _ := a.Get(id)
+	if v.ActiveHours != 2 || v.Samples24h != 11 {
+		t.Fatalf("got %d hours, %d samples", v.ActiveHours, v.Samples24h)
+	}
+}

@@ -566,6 +566,7 @@ type nopSink struct{}
 func (nopSink) WriteSamples(context.Context, []Sample) error            { return nil }
 func (nopSink) UpsertNodes(context.Context, []NodeUpsert) error         { return nil }
 func (nopSink) MarkRelayed(context.Context, map[string]time.Time) error { return nil }
+func (nopSink) WriteReceptions(context.Context, []Reception) error      { return nil }
 
 // An observer hears a trace at each retransmission, each one carrying the SNR
 // of every hop before: each hop of a trace is recorded once.

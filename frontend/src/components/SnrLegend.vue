@@ -18,6 +18,10 @@ const props = defineProps<{
   asymThreshold: number
   palette: SnrPalette
   functionalCount: number
+  /** Links the "Fonctionnel" view keeps on their traffic alone, and the rule. */
+  busyCount: number
+  busyMinHours: number
+  busyMinSamples: number
   /** Nodes in view per configuration issue, and the issues the ⚠ flags. */
   issueCounts: Record<NodeIssue, number>
   /** Listen-only observers in view. */
@@ -108,9 +112,15 @@ const topologyOn = computed(() => props.kinds.includes('topology'))
           <span>Les deux sens mesurés, chacun ≥ {{ thresholds[1] }} dB</span>
           <span class="mono count">{{ functionalCount }}</span>
         </p>
+        <p class="functional">
+          <span class="line busy" aria-hidden="true" />
+          <span>Trafic régulier : entendu au moins {{ busyMinHours }} h sur les 24 dernières</span>
+          <span class="mono count">{{ busyCount }}</span>
+        </p>
         <p class="caveat">
-          Masqués : les liens plus faibles, ceux mesurés dans un seul sens (rien ne dit que le
-          retour passe) et les liens topologiques, sans mesure.
+          Une route que le réseau emprunte toutes les heures fonctionne, mesurée ou non (au moins
+          {{ busyMinSamples }} passages). Masqués : les liens plus faibles ou mesurés dans un seul sens, et
+          les liens peu ou irrégulièrement empruntés.
         </p>
       </div>
 
@@ -438,6 +448,10 @@ ul {
 
 .functional .line {
   border-top: 3px solid var(--functional);
+}
+
+.functional .line.busy {
+  border-top-style: dashed;
 }
 
 .hashwarn {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { BackboneLevel, NodeDetail, NodeNeighbor } from '@/api/types'
 import { snrBucketIndex } from '@/styles/scale'
 import { formatDuration } from '@/utils/duration'
@@ -16,9 +16,30 @@ const props = defineProps<{
   thresholds: number[]
   /** Clock offset from which the node is flagged, in s. */
   clockMaxSec: number
+  /** The link hovered here or on the map, highlighted in both. */
+  hoveredLinkId?: string | null
 }>()
 
-const emit = defineEmits<{ close: []; openLink: [string] }>()
+const emit = defineEmits<{ close: []; openLink: [string]; hoverLink: [string | null] }>()
+
+/** The row hovered here: no need to scroll to it when the map echoes it back. */
+let hoveredHere: string | null = null
+const rowEls = new Map<string, HTMLElement>()
+
+function hoverRow(id: string | null) {
+  hoveredHere = id
+  emit('hoverLink', id)
+}
+
+// A link hovered on the map: its row comes into view.
+watch(
+  () => props.hoveredLinkId,
+  async (id) => {
+    if (!id || id === hoveredHere) return
+    await nextTick()
+    rowEls.get(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  },
+)
 
 const typeLabel: Record<string, string> = {
   repeater: 'Répéteur',
@@ -277,7 +298,12 @@ function snr(v: number | null): string {
             <tr
               v-for="n in neighbors"
               :key="n.linkId"
-              :class="{ static: listenOnly }"
+              :ref="(el) => (el ? rowEls.set(n.linkId, el as HTMLElement) : rowEls.delete(n.linkId))"
+              :class="{ static: listenOnly, hovered: n.linkId === hoveredLinkId }"
+              @mouseenter="hoverRow(n.linkId)"
+              @mouseleave="hoverRow(null)"
+              @focus="hoverRow(n.linkId)"
+              @blur="hoverRow(null)"
               :tabindex="listenOnly ? undefined : 0"
               :title="listenOnly ? undefined : `Ouvrir le lien avec ${n.name || n.key.slice(0, 8)}`"
               @click="!listenOnly && emit('openLink', n.linkId)"
@@ -589,6 +615,7 @@ h3 {
 }
 
 .neighbors tbody tr:hover,
+.neighbors tbody tr.hovered,
 .neighbors tbody tr:focus-visible {
   background: var(--surface-2);
   outline: none;

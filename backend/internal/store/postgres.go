@@ -92,7 +92,11 @@ func sortStrings(s []string) {
 	}
 }
 
+// key decodes a hex key; nil (NULL) when there is none.
 func key(s string) []byte {
+	if s == "" {
+		return nil
+	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
 		return nil
@@ -208,7 +212,7 @@ func (p *Postgres) WriteObservations(ctx context.Context, rows []ObservationRow)
 	_, err := p.pool.CopyFrom(ctx,
 		pgx.Identifier{"observations"},
 		[]string{"time", "source_id", "observer_key", "region", "route_type", "payload_type",
-			"hop_count", "hash_size", "path", "snr", "rssi", "wire_hash", "frame_len"},
+			"hop_count", "hash_size", "path", "snr", "rssi", "wire_hash", "frame_len", "packet_hash", "origin_key"},
 		pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
 			r := rows[i]
 			var rssi *int16
@@ -219,9 +223,47 @@ func (p *Postgres) WriteObservations(ctx context.Context, rows []ObservationRow)
 			return []any{
 				r.At, r.SourceID, key(r.ObserverKey), r.Region, int16(r.RouteType), int16(r.PayloadType),
 				int16(r.HopCount), int16(r.HashSize), r.Path, r.SNR, rssi, key(r.WireHash), r.FrameLen,
+				key(r.PacketHash), key(r.OriginKey),
 			}, nil
 		}))
 	return err
+}
+
+// PacketReceptions returns the receptions of one packet, oldest first.
+func (p *Postgres) PacketReceptions(ctx context.Context, packetHash string, since time.Time, limit int) ([]ObservationRow, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT time, source_id, observer_key, COALESCE(region, ''), route_type, payload_type,
+       hop_count, hash_size, path, snr, rssi, COALESCE(frame_len, 0), origin_key
+FROM observations
+WHERE packet_hash = $1 AND time >= $2
+ORDER BY time
+LIMIT $3`, key(packetHash), since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ObservationRow
+	for rows.Next() {
+		var (
+			r              ObservationRow
+			obs, origin    []byte
+			route, payload int16
+			hops, hashSize int16
+			rssi           *int16
+		)
+		if err := rows.Scan(&r.At, &r.SourceID, &obs, &r.Region, &route, &payload,
+			&hops, &hashSize, &r.Path, &r.SNR, &rssi, &r.FrameLen, &origin); err != nil {
+			return nil, err
+		}
+		r.ObserverKey, r.OriginKey, r.PacketHash = hexUpper(obs), hexUpper(origin), packetHash
+		r.RouteType, r.PayloadType, r.HopCount, r.HashSize = uint8(route), uint8(payload), int(hops), int(hashSize)
+		if rssi != nil {
+			v := int(*rssi)
+			r.RSSI = &v
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // WriteSamples bulk-loads link samples.
@@ -331,6 +373,32 @@ GROUP BY a_key, b_key, forward, observer_key`, since, measuredSince)
 		}
 		c.ID = ingest.LinkID{A: hexUpper(a), B: hexUpper(b)}
 		c.Observer = hexUpper(obs)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// LoadLinkHours counts each link's samples per clock hour since `since`.
+func (p *Postgres) LoadLinkHours(ctx context.Context, since time.Time) ([]ingest.HourCount, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT a_key, b_key, time_bucket(INTERVAL '1 hour', time) AS hour, count(*)
+FROM link_samples
+WHERE time >= $1
+GROUP BY a_key, b_key, hour`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ingest.HourCount{}
+	for rows.Next() {
+		var (
+			c    ingest.HourCount
+			a, b []byte
+		)
+		if err := rows.Scan(&a, &b, &c.Hour, &c.N); err != nil {
+			return nil, err
+		}
+		c.ID = ingest.LinkID{A: hexUpper(a), B: hexUpper(b)}
 		out = append(out, c)
 	}
 	return out, rows.Err()

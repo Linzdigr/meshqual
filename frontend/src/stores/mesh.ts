@@ -16,7 +16,7 @@ import type {
   ServerConfig,
 } from '@/api/types'
 import { DEFAULT_SNR_THRESHOLDS, type SnrPalette } from '@/styles/scale'
-import { isAsymmetric, isFunctional, type ViewMode } from '@/map/lanes'
+import { DEFAULT_BUSY, isAsymmetric, isBusy, snrWorks, type BusyRule, type ViewMode } from '@/map/lanes'
 import { NODE_ISSUES, nodeIssues, type NodeIssue } from '@/map/nodeIssues'
 import { CLOCK_OFFSET_MAX_SEC, clockOff } from '@/map/clock'
 import { historySpan } from '@/utils/history'
@@ -149,9 +149,20 @@ export const useMeshStore = defineStore('mesh', () => {
   const asymmetryThresholdDb = computed(() => config.value?.asymmetryThresholdDb ?? 6)
   const measureRetentionSec = computed(() => config.value?.measureRetentionSec ?? 14 * 86_400)
   const clockOffsetMaxSec = computed(() => config.value?.clockOffsetMaxSec ?? CLOCK_OFFSET_MAX_SEC)
-  /** Links shown by the "Fonctionnel" view: weaker direction at or above the usable threshold. */
+  const busyRule = computed<BusyRule>(() => ({
+    minHours: config.value?.busyMinHours ?? DEFAULT_BUSY.minHours,
+    minSamples: config.value?.busyMinSamples ?? DEFAULT_BUSY.minSamples,
+  }))
+  /** Links the "Fonctionnel" view keeps on their SNR: weaker direction at or above the usable threshold. */
   const functionalCount = computed(
-    () => links.value.features.filter((f) => isFunctional(f.properties, snrThresholds.value)).length,
+    () => links.value.features.filter((f) => snrWorks(f.properties, snrThresholds.value)).length,
+  )
+  /** Links it keeps on their traffic alone (isBusy). */
+  const busyCount = computed(
+    () =>
+      links.value.features.filter(
+        (f) => !snrWorks(f.properties, snrThresholds.value) && isBusy(f.properties, busyRule.value),
+      ).length,
   )
   /**
    * Companions are personal devices, not the mesh: hidden by default with
@@ -446,6 +457,8 @@ export const useMeshStore = defineStore('mesh', () => {
     clockCount,
     asymmetricCount,
     functionalCount,
+    busyCount,
+    busyRule,
     issueCounts,
     listenOnlyCount,
     showCompanions,

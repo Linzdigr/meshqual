@@ -137,8 +137,13 @@ direction is usually the only one. Below `minDirectionSamples` (default 3)
 values in a direction the result is marked as low confidence and no asymmetry is
 computed. The map's **Par sens** view draws one lane per direction instead, and
 can show unbalanced links only ("déséquilibré"): both directions measured,
-medians at least `asymmetryThresholdDb` (default 6 dB) apart. The **Fonctionnel** view keeps only links
-measured both ways whose weaker direction is at least -5 dB.
+medians at least `asymmetryThresholdDb` (default 6 dB) apart. The **Fonctionnel** view keeps the links
+measured both ways whose weaker direction is at least -5 dB, and the busy
+ones, measured or not: heard in at least `busyMinHours` of the last 24 clock
+hours (default 12) with at least `busyMinSamples` samples (default 24). A route
+the mesh uses every hour works, whatever its SNR says or does not say; busy
+topology links stay dashed. relayd keeps each link's samples per clock hour and
+restores them from `link_samples` at start-up.
 
 A link leaves the map once it has not been heard for `liveWindow` (default
 24 h), unless it still holds a signal measurement: SNR and RSSI values are kept
@@ -223,6 +228,25 @@ current view (150 km wide at most), computed in the browser.
   most useful predicted links. The panel lists every zone with the best link it
   has with the network today.
 
+## Following a packet
+
+Paste a packet hash in full (16 hex digits) into the search field: the map
+draws the way that packet went and fades the rest.
+
+The hash is the firmware's own (`Packet::calculatePacketHash`: SHA-256 of the
+payload type, `path_len` for a TRACE, and the payload, cut to 8 bytes). It
+leaves the path out, so every copy of a packet has the same hash whichever
+relays carried it, and it is the hash MQTT observers publish next to the frame.
+
+Every reception is archived in `observations` with that hash (30 days, see
+`002_policies.sql`). A lookup covers the last 7 days, the part not yet
+compressed. Each flood reception names its relays in order, from the
+originator (known for adverts) to the observer; together they draw a tree. A
+hop no known node answers to, or that several do, is a dashed line between
+the nodes on either side. A direct reception carries the route still ahead, as
+each relay strips itself off: only its observer is drawn. Packets received
+before this archive existed cannot be found.
+
 ## Traces from a companion
 
 The map's **Trace** button (under the zoom controls) connects a MeshCore
@@ -265,6 +289,7 @@ Listen-only observers are left out (see below).
 | `GET /api/links/{a}/{b}/history?window=24h&bucket=1h` | SNR time series (requires TimescaleDB) |
 | `GET /api/links/{a}/{b}/profile` | Line of sight over the IGN ground profile |
 | `POST /api/measurements` | Companion measurements from the trace panel (`Authorization: Bearer <MESHQUAL_SUBMIT_TOKEN>`) |
+| `GET /api/packets/{hash}` | Every reception of one packet in the last 7 days, hops named |
 | `GET /api/stream?link=A:B` | SSE: `links:changed`, `frame` |
 | `GET /api/config` | SNR thresholds and refresh settings |
 | `GET /api/health` | Source and pipeline status |

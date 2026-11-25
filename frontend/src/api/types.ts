@@ -27,6 +27,9 @@ export interface LinkProperties {
   distKm: number
   /** log10(samples+1): the width channel, so a backbone does not hide the leaves. */
   weight: number
+  /** Clock hours with traffic out of the last 24, and the samples in them. */
+  activeHours?: number
+  samples24h?: number
   /** The ends' node types ("repeater", "companion"…). */
   aType?: string
   bType?: string
@@ -151,6 +154,9 @@ export interface ServerConfig {
   submitEnabled?: boolean
   /** Clock offset from which a node is flagged on the map, in s. */
   clockOffsetMaxSec?: number
+  /** Traffic from which the "Fonctionnel" view keeps a link without SNR (map/lanes BusyRule). */
+  busyMinHours?: number
+  busyMinSamples?: number
 }
 
 export interface SourceStats {
@@ -251,6 +257,35 @@ export interface LinkDetail {
 }
 
 /** One node found by GET /api/nodes/search. */
+/** A node on a packet's way (GET /api/packets/{hash}); key and position when known. */
+export interface PacketHop {
+  hash?: string
+  key?: string
+  name?: string
+  lat?: number
+  lon?: number
+  ambiguous?: boolean
+}
+
+/** One observer's copy of a packet. */
+export interface PacketReception {
+  at: string
+  observer: PacketHop
+  /** flood: the hops relayed it, in order. direct: the hops are the route still ahead. */
+  route: 'flood' | 'direct'
+  hops: PacketHop[]
+  snr?: number
+  rssi?: number
+}
+
+/** Every reception of one packet, by its firmware hash. */
+export interface PacketTrace {
+  hash: string
+  payloadType: string
+  origin?: PacketHop
+  receptions: PacketReception[]
+}
+
 export interface NodeSearchHit {
   key: string
   name: string

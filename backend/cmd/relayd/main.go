@@ -124,6 +124,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 		} else {
 			aggregator.RestoreCounts(counts)
 		}
+		if hours, err := st.LoadLinkHours(ctx, now.Add(-ingest.ActivityHours*time.Hour)); err != nil {
+			log.Warn("could not restore link activity", "err", err)
+		} else {
+			aggregator.RestoreActivity(hours)
+		}
 		log.Info("link table warmed", "samples", len(samples), "implausible", dropped,
 			"links", aggregator.Health().Links)
 	}
@@ -164,6 +169,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 		LiveWindow: cfg.LiveWindow.D(), FramesMax: cfg.FramesPerLink,
 		MeasureRetention:     cfg.MeasureRetention.D(),
 		AsymmetryThresholdDb: cfg.AsymmetryThresholdDb,
+		BusyMinHours:         cfg.BusyMinHours,
+		BusyMinSamples:       cfg.BusyMinSamples,
 		NodeMaxAge:           cfg.NodeMaxAge.D(),
 		RelayWindow:          cfg.RelayWindow.D(),
 		ClockOffsetMax:       cfg.ClockOffsetMax.D(),
